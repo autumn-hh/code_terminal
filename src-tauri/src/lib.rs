@@ -1,5 +1,7 @@
 #![cfg(feature = "desktop")]
 
+mod atomic_state;
+
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -101,6 +103,7 @@ const MAX_TUI_DEBUG_LOG_LINE_CHARS: usize = 16 * 1024;
 struct TerminalRegistry(Mutex<HashMap<String, TerminalSession>>);
 
 struct TerminalSession {
+    instance_id: Uuid,
     project_id: Option<String>,
     child: Box<dyn PtyChild + Send>,
     control_tx: mpsc::Sender<TerminalControl>,
@@ -399,9 +402,29 @@ fn terminal_start(
         .map_err(|error| error.to_string())?;
     let master = pair.master;
     let (control_tx, control_rx) = mpsc::channel::<TerminalControl>();
+    let instance_id = Uuid::new_v4();
     let output_session_id = session_id.clone();
     let exit_session_id = session_id.clone();
     let app_for_thread = app.clone();
+
+    {
+        let mut sessions = terminals.0.lock().map_err(lock_error)?;
+        if sessions.contains_key(&session_id) {
+            let mut child = child;
+            let _ = control_tx.send(TerminalControl::Stop);
+            let _ = child.kill();
+            return Err("终端会话已存在".into());
+        }
+        sessions.insert(
+            session_id.clone(),
+            TerminalSession {
+                instance_id,
+                project_id,
+                child,
+                control_tx,
+            },
+        );
+    }
 
     thread::spawn(move || {
         let mut writer = writer;
@@ -456,19 +479,8 @@ fn terminal_start(
                 code: None,
             },
         );
+        release_naturally_exited_terminal(&app_for_thread, &output_session_id, instance_id);
     });
-
-    {
-        let mut sessions = terminals.0.lock().map_err(lock_error)?;
-        sessions.insert(
-            session_id.clone(),
-            TerminalSession {
-                project_id,
-                child,
-                control_tx,
-            },
-        );
-    }
 
     Ok(TerminalStarted {
         session_id,
@@ -587,7 +599,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let state = load_state_from_disk(&app.handle()).unwrap_or_default();
+            let state = load_state_from_disk(&app.handle())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             let initial_project_id = initial_project_id_from_args();
             if let Some(title) = initial_window_title(&state, initial_project_id.as_deref()) {
                 if let Some(window) = app.get_webview_window("main") {
@@ -643,12 +656,7 @@ pub fn run() {
 
 fn load_state_from_disk(app: &AppHandle) -> Result<WorkbenchState, String> {
     let path = state_file_path(app)?;
-    if !path.exists() {
-        return Ok(WorkbenchState::default());
-    }
-    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let mut state: WorkbenchState =
-        serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let mut state: WorkbenchState = atomic_state::load_json(&path)?.unwrap_or_default();
     for project in &mut state.projects {
         project.status = ProjectStatus::Stopped;
         project.path = normalize_existing_path(&project.path);
@@ -658,11 +666,7 @@ fn load_state_from_disk(app: &AppHandle) -> Result<WorkbenchState, String> {
 
 fn save_state_to_disk(app: &AppHandle, state: &WorkbenchState) -> Result<(), String> {
     let path = state_file_path(app)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    let content = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
-    fs::write(path, content).map_err(|error| error.to_string())
+    atomic_state::save_json(&path, state)
 }
 
 fn state_file_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -854,9 +858,10 @@ fn normalize_new_directory_name(name: &str) -> Result<String, String> {
     if name == "." || name == ".." {
         return Err("文件夹名称无效".into());
     }
-    if name.chars().any(|character| {
-        character == '/' || character == '\\' || character.is_control()
-    }) {
+    if name
+        .chars()
+        .any(|character| character == '/' || character == '\\' || character.is_control())
+    {
         return Err("文件夹名称不能包含路径分隔符".into());
     }
 
@@ -919,6 +924,22 @@ fn stop_terminals_for_project(
 fn stop_detached_terminal_session(mut session: TerminalSession) {
     let _ = session.control_tx.send(TerminalControl::Stop);
     let _ = session.child.kill();
+}
+
+fn release_naturally_exited_terminal(app: &AppHandle, session_id: &str, instance_id: Uuid) {
+    let registry = app.state::<TerminalRegistry>();
+    let session = registry.0.lock().ok().and_then(|mut sessions| {
+        let is_same_instance = sessions
+            .get(session_id)
+            .map(|session| session.instance_id == instance_id)
+            .unwrap_or(false);
+        is_same_instance
+            .then(|| sessions.remove(session_id))
+            .flatten()
+    });
+    if let Some(session) = session {
+        let _ = session.control_tx.send(TerminalControl::Stop);
+    }
 }
 
 fn pasted_image_extension(mime_type: &str) -> Option<&'static str> {

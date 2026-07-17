@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { TerminalCursorController } from "./terminalCursorController";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
@@ -259,8 +260,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const isLifecycleStoppingRef = useRef(false);
     const outputQueueRef = useRef<string[]>([]);
     const outputWriterActiveRef = useRef(false);
-    const outputCursorTimerRef = useRef<number | null>(null);
     const outputCursorSuppressedRef = useRef(false);
+    const outputCursorControllerRef = useRef<TerminalCursorController | null>(null);
     const terminalTuiImeStableRef = useRef(false);
     const terminalImeCompositionActiveRef = useRef(false);
     const terminalImeStabilizeHoldRef = useRef(false);
@@ -277,6 +278,14 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const directTerminalInputDraftRef = useRef("");
     const directTerminalBracketedPasteRef = useRef(false);
     const codexWelcomeMessageIdRef = useRef<string | null>(null);
+
+    if (!outputCursorControllerRef.current) {
+      outputCursorControllerRef.current = new TerminalCursorController((suppressed) => {
+        outputCursorSuppressedRef.current = suppressed;
+        syncCursorSuppressionClass();
+        writeTuiDebugLog("cursor-suppressed-change", { suppressed });
+      });
+    }
     const dialogConversationStartedRef = useRef(false);
     const pendingSubmitTimerRef = useRef<number | null>(null);
     const tuiDebugLinesRef = useRef<string[]>([]);
@@ -2055,13 +2064,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         setConversationMessages((current) => current.filter((message) => message.id !== messageId));
       }
       setTuiContextUsage(null);
-      if (outputCursorTimerRef.current) {
-        window.clearTimeout(outputCursorTimerRef.current);
-        outputCursorTimerRef.current = null;
-      }
+      outputCursorControllerRef.current?.revealNow();
       hostRef.current?.classList.remove("terminal-tui-active");
       resetTerminalTuiImeStabilization();
-      setOutputCursorSuppressed(false);
       writeTuiDebugLog("output-queue-clear");
     }
 
@@ -2075,9 +2080,11 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     function setOutputCursorSuppressed(suppressed: boolean) {
-      outputCursorSuppressedRef.current = suppressed;
-      syncCursorSuppressionClass();
-      writeTuiDebugLog("cursor-suppressed-change", { suppressed });
+      if (suppressed) {
+        outputCursorControllerRef.current?.suppress();
+      } else {
+        outputCursorControllerRef.current?.revealNow();
+      }
     }
 
     function syncCursorSuppressionClass() {
@@ -2086,53 +2093,32 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     function suppressCursorDuringOutput() {
-      if (outputCursorTimerRef.current) {
-        window.clearTimeout(outputCursorTimerRef.current);
-        outputCursorTimerRef.current = null;
-      }
-
-      if (!outputCursorSuppressedRef.current) {
-        setOutputCursorSuppressed(true);
-      }
+      outputCursorControllerRef.current?.suppress();
     }
 
     function revealCursorAfterOutputSettles(isTuiOutput = false) {
-      if (!outputCursorSuppressedRef.current) return;
-      if (outputCursorTimerRef.current) {
-        window.clearTimeout(outputCursorTimerRef.current);
-      }
-
       writeTuiDebugLog("cursor-reveal-scheduled", { isTuiOutput });
-      outputCursorTimerRef.current = window.setTimeout(() => {
-        outputCursorTimerRef.current = null;
-        if (outputWriterActiveRef.current || outputQueueRef.current.length > 0) return;
-        setOutputCursorSuppressed(false);
-        logCursorDebug("cursor-revealed-after-output");
-      }, isTuiOutput ? tuiOutputCursorRevealDelayMs : outputCursorRevealDelayMs);
+      outputCursorControllerRef.current?.revealAfter(
+        isTuiOutput ? tuiOutputCursorRevealDelayMs : outputCursorRevealDelayMs,
+        () => !outputWriterActiveRef.current && outputQueueRef.current.length === 0,
+        () => logCursorDebug("cursor-revealed-after-output"),
+      );
     }
 
     function revealCursorForInput(options: { keepSuppressedForTuiIme?: boolean } = {}) {
       if (options.keepSuppressedForTuiIme) {
         stabilizeTerminalTuiImeForInput("");
         if (shouldStabilizeTerminalTuiIme()) {
-          if (outputCursorTimerRef.current) {
-            window.clearTimeout(outputCursorTimerRef.current);
-            outputCursorTimerRef.current = null;
-          }
-          if (!outputCursorSuppressedRef.current) {
-            setOutputCursorSuppressed(true);
-          } else {
+          if (outputCursorSuppressedRef.current) {
             syncCursorSuppressionClass();
+          } else {
+            setOutputCursorSuppressed(true);
           }
           logCursorDebug("cursor-kept-suppressed-for-tui-ime-input");
           return;
         }
       }
 
-      if (outputCursorTimerRef.current) {
-        window.clearTimeout(outputCursorTimerRef.current);
-        outputCursorTimerRef.current = null;
-      }
       setOutputCursorSuppressed(false);
       logCursorDebug("cursor-revealed-for-input");
     }
@@ -2467,7 +2453,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       if (!terminal || !fit) return null;
 
       const hostSize = getTerminalHostSize();
-      if (!options.force && !hasTerminalHostSizeChanged(hostSize)) {
+      if (!hasTerminalHostSizeChanged(hostSize)) {
         return {
           cols: terminal.cols || 100,
           rows: terminal.rows || 28,
@@ -2737,7 +2723,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const terminal = new XTerm({
         allowProposedApi: false,
         convertEol: false,
-        cursorBlink: true,
+        cursorBlink: false,
         cursorInactiveStyle: "none",
         cursorStyle: "bar",
         cursorWidth: 2,

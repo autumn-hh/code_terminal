@@ -86,12 +86,23 @@ function readServerToken() {
   if (serverToken !== undefined) return serverToken;
 
   try {
+    const url = new URL(window.location.href);
+    const fragmentParams = new URLSearchParams(url.hash.replace(/^#/, ""));
     serverToken =
-      new URLSearchParams(window.location.search).get("token") ||
-      window.localStorage.getItem("code-terminal.server-token") ||
+      fragmentParams.get("token") ||
+      url.searchParams.get("token") ||
+      window.sessionStorage.getItem("code-terminal.server-token") ||
       null;
     if (serverToken) {
-      window.localStorage.setItem("code-terminal.server-token", serverToken);
+      window.sessionStorage.setItem("code-terminal.server-token", serverToken);
+    }
+    window.localStorage.removeItem("code-terminal.server-token");
+
+    if (url.searchParams.has("token") || fragmentParams.has("token")) {
+      url.searchParams.delete("token");
+      fragmentParams.delete("token");
+      const nextFragment = fragmentParams.toString();
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${nextFragment ? `#${nextFragment}` : ""}`);
     }
   } catch {
     serverToken = null;
@@ -101,12 +112,14 @@ function readServerToken() {
 }
 
 function serverApiUrl(command: string) {
+  return new URL(`/api/${command}`, window.location.origin);
+}
+
+function serverHeaders() {
+  const headers: Record<string, string> = { "content-type": "application/json" };
   const token = readServerToken();
-  const url = new URL(`/api/${command}`, window.location.origin);
-  if (token) {
-    url.searchParams.set("token", token);
-  }
-  return url;
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
 }
 
 async function serverInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
@@ -115,9 +128,7 @@ async function serverInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   }
 
   const init: RequestInit = {
-    headers: {
-      "content-type": "application/json",
-    },
+    headers: serverHeaders(),
   };
   const isGet = cmd === "load_state" || cmd === "initial_project_id";
   if (!isGet) {
@@ -152,14 +163,24 @@ export function canUseNativeOpenDialog() {
   return isTauriRuntime();
 }
 
-function serverEventsUrl() {
-  const token = readServerToken();
+function serverEventsUrl(ticket: string | null) {
   const url = new URL("/api/events", window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  if (token) {
-    url.searchParams.set("token", token);
-  }
+  if (ticket) url.searchParams.set("ticket", ticket);
   return url;
+}
+
+async function requestServerEventsTicket() {
+  const response = await fetch(serverApiUrl("events_ticket"), {
+    method: "POST",
+    headers: serverHeaders(),
+    body: "{}",
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(message || response.statusText);
+  }
+  return (await response.json()) as { ticket: string | null };
 }
 
 function normalizeServerEventName(type: string) {
@@ -177,72 +198,82 @@ function ensureServerEventsSocket(): Promise<void> {
   if (serverEventsSocket?.readyState === WebSocket.OPEN) {
     return Promise.resolve();
   }
-  if (serverEventsSocket?.readyState === WebSocket.CONNECTING && serverEventsReady) {
+  if (serverEventsReady) {
     return serverEventsReady;
   }
 
-  const socket = new WebSocket(serverEventsUrl());
-  serverEventsSocket = socket;
-  serverEventsReady = new Promise((resolve, reject) => {
-    const handleOpen = () => {
-      cleanup();
-      resolve();
-    };
-    const handleUnavailable = () => {
-      cleanup();
-      reject(new Error("服务器事件通道连接失败"));
-    };
-    const cleanup = () => {
-      socket.removeEventListener("open", handleOpen);
-      socket.removeEventListener("error", handleUnavailable);
-      socket.removeEventListener("close", handleUnavailable);
-    };
+  const ready = (async () => {
+    const { ticket } = await requestServerEventsTicket();
+    const socket = new WebSocket(serverEventsUrl(ticket));
+    serverEventsSocket = socket;
+    await new Promise<void>((resolve, reject) => {
+      const handleOpen = () => {
+        cleanup();
+        resolve();
+      };
+      const handleUnavailable = () => {
+        cleanup();
+        reject(new Error("服务器事件通道连接失败"));
+      };
+      const cleanup = () => {
+        socket.removeEventListener("open", handleOpen);
+        socket.removeEventListener("error", handleUnavailable);
+        socket.removeEventListener("close", handleUnavailable);
+      };
 
-    socket.addEventListener("open", handleOpen);
-    socket.addEventListener("error", handleUnavailable);
-    socket.addEventListener("close", handleUnavailable);
-  });
-
-  socket.addEventListener("message", (event) => {
-    let payload: {
-      type?: string;
-      payload?: TerminalOutput | TerminalExit;
-      terminalOutput?: TerminalOutput;
-      terminalExit?: TerminalExit;
-      terminal_output?: TerminalOutput;
-      terminal_exit?: TerminalExit;
-    };
-
-    try {
-      payload = JSON.parse(String(event.data));
-    } catch {
-      return;
-    }
-
-    if (!payload.type) return;
-
-    const eventName = normalizeServerEventName(payload.type);
-    const eventPayload =
-      payload.payload ?? payload.terminalOutput ?? payload.terminal_output ?? payload.terminalExit ?? payload.terminal_exit;
-    if (!eventPayload) return;
-
-    serverEventHandlers.get(eventName)?.forEach((handler) => {
-      handler({ event: eventName, id: 0, payload: eventPayload } as Parameters<typeof handler>[0]);
+      socket.addEventListener("open", handleOpen);
+      socket.addEventListener("error", handleUnavailable);
+      socket.addEventListener("close", handleUnavailable);
     });
-  });
-  socket.addEventListener("close", () => {
-    if (serverEventsSocket === socket) {
+
+    socket.addEventListener("message", (event) => {
+      let payload: {
+        type?: string;
+        payload?: TerminalOutput | TerminalExit;
+        terminalOutput?: TerminalOutput;
+        terminalExit?: TerminalExit;
+        terminal_output?: TerminalOutput;
+        terminal_exit?: TerminalExit;
+      };
+
+      try {
+        payload = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+
+      if (!payload.type) return;
+
+      const eventName = normalizeServerEventName(payload.type);
+      const eventPayload =
+        payload.payload ?? payload.terminalOutput ?? payload.terminal_output ?? payload.terminalExit ?? payload.terminal_exit;
+      if (!eventPayload) return;
+
+      serverEventHandlers.get(eventName)?.forEach((handler) => {
+        handler({ event: eventName, id: 0, payload: eventPayload } as Parameters<typeof handler>[0]);
+      });
+    });
+    socket.addEventListener("close", () => {
+      if (serverEventsSocket === socket) {
+        serverEventsSocket = null;
+        serverEventsReady = null;
+      }
+      if (serverEventHandlers.size > 0) {
+        window.setTimeout(() => {
+          void ensureServerEventsSocket().catch(() => undefined);
+        }, 1200);
+      }
+    });
+  })();
+
+  serverEventsReady = ready;
+  void ready.catch(() => {
+    if (serverEventsReady === ready) {
       serverEventsSocket = null;
       serverEventsReady = null;
     }
-    if (serverEventHandlers.size > 0) {
-      window.setTimeout(() => {
-        void ensureServerEventsSocket().catch(() => undefined);
-      }, 1200);
-    }
   });
-
-  return serverEventsReady;
+  return ready;
 }
 
 export function isTauriRuntime() {

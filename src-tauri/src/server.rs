@@ -19,14 +19,18 @@ use std::{
     path::{Path, PathBuf},
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
+#[path = "atomic_state.rs"]
+mod atomic_state;
+
 const MAX_PASTED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const DEFAULT_ADDR: &str = "127.0.0.1:8787";
+const EVENTS_TICKET_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +115,12 @@ struct ServerEventMessage<T> {
 #[serde(rename_all = "camelCase")]
 struct TokenQuery {
     token: Option<String>,
+    ticket: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EventsTicketResponse {
+    ticket: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,6 +218,7 @@ struct AppState {
     state_store: Arc<Mutex<WorkbenchState>>,
     terminals: Arc<Mutex<HashMap<String, TerminalSession>>>,
     events: broadcast::Sender<ServerEvent>,
+    events_tickets: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 #[derive(Clone)]
@@ -219,6 +230,7 @@ struct ServerConfig {
 }
 
 struct TerminalSession {
+    instance_id: Uuid,
     project_id: Option<String>,
     child: Box<dyn PtyChild + Send>,
     control_tx: mpsc::Sender<TerminalControl>,
@@ -250,6 +262,7 @@ pub async fn run() -> Result<(), String> {
         state_store: Arc::new(Mutex::new(state)),
         terminals: Arc::new(Mutex::new(HashMap::new())),
         events,
+        events_tickets: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let static_service = ServeDir::new(&config.static_dir)
@@ -275,6 +288,7 @@ pub async fn run() -> Result<(), String> {
         .route("/api/terminal_stop", post(terminal_stop))
         .route("/api/save_pasted_image", post(save_pasted_image))
         .route("/api/events", get(events_ws))
+        .route("/api/events_ticket", post(events_ticket))
         .fallback_service(static_service)
         .with_state(app_state.clone());
 
@@ -283,7 +297,12 @@ pub async fn run() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     println!("code-terminal server listening on http://{}", config.addr);
     if config.token.is_some() {
-        println!("auth token enabled; open with ?token=<CODE_TERMINAL_TOKEN>");
+        println!("auth token enabled; open with #token=<CODE_TERMINAL_TOKEN>");
+        if !config.addr.ip().is_loopback() {
+            eprintln!(
+                "warning: non-loopback HTTP exposes terminal traffic; use an HTTPS reverse proxy for remote access"
+            );
+        }
     }
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(app_state))
@@ -691,11 +710,47 @@ async fn events_ws(
     Query(query): Query<TokenQuery>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    if let Err(error) = authorize(&state.config, &headers, query.token.as_deref()) {
+    let ticket_authorized = query
+        .ticket
+        .as_deref()
+        .map(|ticket| consume_events_ticket(&state.events_tickets, ticket))
+        .unwrap_or(false);
+    if !ticket_authorized && authorize(&state.config, &headers, query.token.as_deref()).is_err() {
+        let error = ApiError::unauthorized();
         return error.into_response();
     }
 
     ws.on_upgrade(move |socket| events_socket(socket, state.events.subscribe()))
+}
+
+async fn events_ticket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<TokenQuery>,
+) -> Result<Json<EventsTicketResponse>, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    if state.config.token.is_none() {
+        return Ok(Json(EventsTicketResponse { ticket: None }));
+    }
+
+    let ticket = Uuid::new_v4().to_string();
+    let now = Instant::now();
+    let mut tickets = state.events_tickets.lock().map_err(lock_error)?;
+    tickets.retain(|_, issued_at| now.duration_since(*issued_at) <= EVENTS_TICKET_TTL);
+    tickets.insert(ticket.clone(), now);
+    Ok(Json(EventsTicketResponse {
+        ticket: Some(ticket),
+    }))
+}
+
+fn consume_events_ticket(tickets: &Mutex<HashMap<String, Instant>>, ticket: &str) -> bool {
+    let Ok(mut tickets) = tickets.lock() else {
+        return false;
+    };
+    tickets
+        .remove(ticket)
+        .map(|issued_at| issued_at.elapsed() <= EVENTS_TICKET_TTL)
+        .unwrap_or(false)
 }
 
 async fn events_socket(socket: WebSocket, mut events: broadcast::Receiver<ServerEvent>) {
@@ -784,10 +839,31 @@ fn start_terminal_session(
         .map_err(|error| ApiError::internal(error.to_string()))?;
     let master = pair.master;
     let (control_tx, control_rx) = mpsc::channel::<TerminalControl>();
+    let instance_id = Uuid::new_v4();
     let output_session_id = session_id.clone();
     let exit_session_id = session_id.clone();
     let events_for_output = state.events.clone();
     let events_for_exit = state.events.clone();
+    let terminals_for_exit = state.terminals.clone();
+
+    {
+        let mut sessions = state.terminals.lock().map_err(lock_error)?;
+        if sessions.contains_key(&session_id) {
+            let mut child = child;
+            let _ = control_tx.send(TerminalControl::Stop);
+            let _ = child.kill();
+            return Err(ApiError::bad_request("终端会话已存在"));
+        }
+        sessions.insert(
+            session_id.clone(),
+            TerminalSession {
+                instance_id,
+                project_id,
+                child,
+                control_tx,
+            },
+        );
+    }
 
     thread::spawn(move || {
         let mut writer = writer;
@@ -833,19 +909,11 @@ fn start_terminal_session(
         }
         flush_terminal_output(&events_for_output, &output_session_id, &mut pending_utf8);
         let _ = events_for_exit.send(ServerEvent::TerminalExit(TerminalExit {
-            session_id: exit_session_id,
+            session_id: exit_session_id.clone(),
             code: None,
         }));
+        release_naturally_exited_terminal(&terminals_for_exit, &exit_session_id, instance_id);
     });
-
-    state.terminals.lock().map_err(lock_error)?.insert(
-        session_id.clone(),
-        TerminalSession {
-            project_id,
-            child,
-            control_tx,
-        },
-    );
 
     Ok(TerminalStarted {
         session_id,
@@ -915,6 +983,25 @@ fn stop_terminals_for_project(
 fn stop_detached_terminal_session(mut session: TerminalSession) {
     let _ = session.control_tx.send(TerminalControl::Stop);
     let _ = session.child.kill();
+}
+
+fn release_naturally_exited_terminal(
+    terminals: &Arc<Mutex<HashMap<String, TerminalSession>>>,
+    session_id: &str,
+    instance_id: Uuid,
+) {
+    let session = terminals.lock().ok().and_then(|mut sessions| {
+        let is_same_instance = sessions
+            .get(session_id)
+            .map(|session| session.instance_id == instance_id)
+            .unwrap_or(false);
+        is_same_instance
+            .then(|| sessions.remove(session_id))
+            .flatten()
+    });
+    if let Some(session) = session {
+        let _ = session.control_tx.send(TerminalControl::Stop);
+    }
 }
 
 fn emit_terminal_output(
@@ -1001,12 +1088,7 @@ fn save_pasted_image_to_disk(mime_type: String, bytes: Vec<u8>) -> Result<String
 }
 
 fn load_state_from_disk(path: &Path) -> Result<WorkbenchState, String> {
-    if !path.exists() {
-        return Ok(WorkbenchState::default());
-    }
-    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let mut state: WorkbenchState =
-        serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let mut state: WorkbenchState = atomic_state::load_json(path)?.unwrap_or_default();
     for project in &mut state.projects {
         project.status = ProjectStatus::Stopped;
         project.path = normalize_existing_path(&project.path);
@@ -1015,12 +1097,7 @@ fn load_state_from_disk(path: &Path) -> Result<WorkbenchState, String> {
 }
 
 fn save_state_to_disk(path: &Path, state: &WorkbenchState) -> Result<(), ApiError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| ApiError::internal(error.to_string()))?;
-    }
-    let content = serde_json::to_string_pretty(state)
-        .map_err(|error| ApiError::internal(error.to_string()))?;
-    fs::write(path, content).map_err(|error| ApiError::internal(error.to_string()))
+    atomic_state::save_json(path, state).map_err(ApiError::internal)
 }
 
 fn normalize_project_path(path: &str) -> Result<String, ApiError> {
@@ -1093,9 +1170,10 @@ fn normalize_new_directory_name(name: &str) -> Result<String, ApiError> {
     if name == "." || name == ".." {
         return Err(ApiError::bad_request("文件夹名称无效"));
     }
-    if name.chars().any(|character| {
-        character == '/' || character == '\\' || character.is_control()
-    }) {
+    if name
+        .chars()
+        .any(|character| character == '/' || character == '\\' || character.is_control())
+    {
         return Err(ApiError::bad_request("文件夹名称不能包含路径分隔符"));
     }
 
@@ -1326,6 +1404,47 @@ impl IntoResponse for ApiError {
             HeaderValue::from_static("text/plain; charset=utf-8"),
         );
         (self.status, headers, self.message).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server_config_with_token(token: Option<&str>) -> ServerConfig {
+        ServerConfig {
+            addr: "127.0.0.1:8787".parse().unwrap(),
+            token: token.map(str::to_string),
+            state_file: PathBuf::from("state.json"),
+            static_dir: PathBuf::from("dist"),
+        }
+    }
+
+    #[test]
+    fn authorization_prefers_bearer_and_keeps_query_compatibility() {
+        let config = server_config_with_token(Some("expected-token"));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer expected-token"),
+        );
+
+        assert!(authorize(&config, &headers, None).is_ok());
+        assert!(authorize(&config, &HeaderMap::new(), Some("expected-token")).is_ok());
+        assert!(authorize(&config, &HeaderMap::new(), None).is_err());
+    }
+
+    #[test]
+    fn events_ticket_is_single_use_and_expires() {
+        let tickets = Mutex::new(HashMap::from([("single-use".into(), Instant::now())]));
+        assert!(consume_events_ticket(&tickets, "single-use"));
+        assert!(!consume_events_ticket(&tickets, "single-use"));
+
+        tickets.lock().unwrap().insert(
+            "expired".into(),
+            Instant::now() - EVENTS_TICKET_TTL - Duration::from_secs(1),
+        );
+        assert!(!consume_events_ticket(&tickets, "expired"));
     }
 }
 

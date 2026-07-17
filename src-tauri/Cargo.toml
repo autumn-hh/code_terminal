@@ -10,6 +10,15 @@ default-run = "code-terminal"
 name = "opencode_workbench_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "code-terminal"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "code-terminal-server"
+path = "src/bin/code-terminal-server.rs"
+
 [features]
 default = ["desktop"]
 desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog"]

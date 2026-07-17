@@ -1,5 +1,9 @@
 node_modules
+.test-dist
 .opencode-workbench
+.code-terminal
+.project-context
+code-terminal-deploy.tar
 .playwright-cli
 src-tauri/target
 src-tauri/target-*

@@ -93,8 +93,10 @@ CODE_TERMINAL_ADDR=0.0.0.0:8787 CODE_TERMINAL_TOKEN=change-this-token npm run se
 手机打开：
 
 ```text
-http://<server-ip>:8787/?token=change-this-token
+https://<server-host>/#token=change-this-token
 ```
+
+`#token` 不会随初始页面请求发送到服务器，页面加载后会立即从地址栏移除，并仅在当前标签页会话中保留。远程访问应在服务端前配置 HTTPS 反向代理；直接使用非回环 HTTP 时，token、终端输入和输出都可能被网络中间节点读取。
 
 也可以先构建服务器二进制：
 
