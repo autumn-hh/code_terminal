@@ -1,6 +1,7 @@
 #![cfg(feature = "desktop")]
 
 mod atomic_state;
+mod codex_sessions;
 
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
@@ -349,6 +350,26 @@ fn open_project_folder(store: State<'_, StateStore>, project_id: String) -> Resu
 }
 
 #[tauri::command]
+async fn list_codex_sessions(
+    store: State<'_, StateStore>,
+    project_id: String,
+) -> Result<Vec<codex_sessions::CodexSessionSummary>, String> {
+    let path = {
+        let state = store.0.lock().map_err(lock_error)?;
+        state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .map(|project| project.path.clone())
+            .ok_or_else(|| "项目不存在".to_string())?
+    };
+
+    tauri::async_runtime::spawn_blocking(move || codex_sessions::list_codex_sessions(&path, 12))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn terminal_start(
     app: AppHandle,
     store: State<'_, StateStore>,
@@ -625,6 +646,7 @@ pub fn run() {
             remove_project,
             open_project_window,
             open_project_folder,
+            list_codex_sessions,
             terminal_start,
             terminal_write,
             terminal_resize,

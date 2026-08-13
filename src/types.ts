@@ -26,6 +26,13 @@ export interface DirectoryListing {
   entries: DirectoryEntry[];
 }
 
+export interface CodexSessionSummary {
+  id: string;
+  title: string;
+  cwd: string;
+  updatedAt: number;
+}
+
 export type BuiltInTerminalThemePreset =
   | "workbench"
   | "daylight"

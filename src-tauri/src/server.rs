@@ -27,6 +27,8 @@ use uuid::Uuid;
 
 #[path = "atomic_state.rs"]
 mod atomic_state;
+#[path = "codex_sessions.rs"]
+mod codex_sessions;
 
 const MAX_PASTED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const DEFAULT_ADDR: &str = "127.0.0.1:8787";
@@ -282,6 +284,7 @@ pub async fn run() -> Result<(), String> {
         .route("/api/remove_project", post(remove_project))
         .route("/api/open_project_window", post(open_project_window))
         .route("/api/open_project_folder", post(open_project_folder))
+        .route("/api/list_codex_sessions", post(list_codex_sessions))
         .route("/api/terminal_start", post(terminal_start))
         .route("/api/terminal_write", post(terminal_write))
         .route("/api/terminal_resize", post(terminal_resize))
@@ -629,6 +632,30 @@ async fn open_project_folder(
         return Err(ApiError::bad_request("项目路径不存在"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_codex_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<TokenQuery>,
+    Json(request): Json<ProjectIdRequest>,
+) -> Result<Json<Vec<codex_sessions::CodexSessionSummary>>, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    let path = {
+        let current = state.state_store.lock().map_err(lock_error)?;
+        current
+            .projects
+            .iter()
+            .find(|project| project.id == request.project_id)
+            .map(|project| project.path.clone())
+            .ok_or_else(|| ApiError::bad_request("项目不存在"))?
+    };
+
+    tokio::task::spawn_blocking(move || codex_sessions::list_codex_sessions(&path, 12))
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?
+        .map(Json)
+        .map_err(ApiError::internal)
 }
 
 async fn terminal_start(

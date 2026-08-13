@@ -5,7 +5,9 @@ import {
   GripVertical,
   ExternalLink,
   FolderOpen,
+  FolderPlus,
   Maximize2,
+  MessageSquare,
   Minus,
   Minimize2,
   Palette,
@@ -37,6 +39,7 @@ import {
 } from "./tauriRuntime";
 import {
   TerminalPane,
+  type CodexSessionResumeRequest,
   type TerminalPaneControlAction,
   type TerminalPaneControlRequest,
   type TerminalPaneControlState,
@@ -53,6 +56,7 @@ import {
 } from "./terminalThemes";
 import type {
   BuiltInTerminalThemePreset,
+  CodexSessionSummary,
   TerminalAppearanceSettings,
   TerminalColorKey,
   WorkbenchState,
@@ -203,6 +207,10 @@ export function App() {
   } | null>(null);
   const [openingProjectWindowId, setOpeningProjectWindowId] = useState<string | null>(null);
   const [openingProjectFolderId, setOpeningProjectFolderId] = useState<string | null>(null);
+  const [codexSessionsByProject, setCodexSessionsByProject] = useState<Record<string, CodexSessionSummary[]>>({});
+  const [loadingCodexSessionProjectIds, setLoadingCodexSessionProjectIds] = useState<Set<string>>(new Set());
+  const [codexSessionErrors, setCodexSessionErrors] = useState<Record<string, string | null>>({});
+  const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
   const [terminalAppearance, setTerminalAppearance] = useState<TerminalAppearanceSettings>(
     readStoredTerminalAppearance,
   );
@@ -214,6 +222,7 @@ export function App() {
   const [fontSizeInput, setFontSizeInput] = useState(() => String(terminalAppearance.fontSize));
   const [lineHeightInput, setLineHeightInput] = useState(() => terminalAppearance.lineHeight.toFixed(2));
   const [terminalControlRequest, setTerminalControlRequest] = useState<TerminalPaneControlRequest | null>(null);
+  const [sessionResumeRequest, setSessionResumeRequest] = useState<CodexSessionResumeRequest | null>(null);
   const [terminalControlState, setTerminalControlState] = useState<TerminalPaneControlState>({
     displayMode: "tiles",
     canInterrupt: false,
@@ -223,6 +232,7 @@ export function App() {
   const projectListRef = useRef<HTMLElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const terminalControlRequestIdRef = useRef(0);
+  const sessionResumeRequestIdRef = useRef(0);
   const sidebarLayoutRef = useRef(sidebarLayout);
   const sidebarResizeRef = useRef<{
     pointerId: number;
@@ -451,6 +461,12 @@ export function App() {
   }, [currentProject?.name]);
 
   useEffect(() => {
+    if (!currentProject?.id) return;
+
+    void loadCodexSessions(currentProject.id);
+  }, [currentProject?.id]);
+
+  useEffect(() => {
     if (!draggedProjectId) return;
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -583,6 +599,47 @@ export function App() {
     const updated = await invoke<WorkbenchState>("set_active_project", { projectId });
     setState(updated);
     setMobileProjectsOpen(false);
+  }
+
+  async function loadCodexSessions(projectId: string) {
+    setLoadingCodexSessionProjectIds((current) => new Set(current).add(projectId));
+    setCodexSessionErrors((current) => ({ ...current, [projectId]: null }));
+    try {
+      const sessions = await invoke<CodexSessionSummary[]>("list_codex_sessions", { projectId });
+      setCodexSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
+    } catch (err) {
+      setCodexSessionErrors((current) => ({ ...current, [projectId]: String(err) }));
+    } finally {
+      setLoadingCodexSessionProjectIds((current) => {
+        const next = new Set(current);
+        next.delete(projectId);
+        return next;
+      });
+    }
+  }
+
+  async function resumeCodexSession(projectId: string, sessionId: string) {
+    setError(null);
+    setSelectedCodexSessionId(sessionId);
+    if (currentProject?.id !== projectId) {
+      await setActive(projectId);
+    }
+
+    sessionResumeRequestIdRef.current += 1;
+    setSessionResumeRequest({
+      id: sessionResumeRequestIdRef.current,
+      projectId,
+      sessionId,
+    });
+    setMobileProjectsOpen(false);
+  }
+
+  async function refreshProjectData() {
+    const updated = await loadState();
+    const projectId = currentProject?.id || updated.activeProjectId || updated.projects[0]?.id;
+    if (projectId) {
+      await loadCodexSessions(projectId);
+    }
   }
 
   function moveProject(
@@ -1097,15 +1154,15 @@ export function App() {
                 <small>{appWindowSubtitle}</small>
               </span>
             </div>
-            <button className="sidebar-icon" title="隐藏项目栏" onClick={closeProjectPanel}>
-              <PanelLeftClose size={16} />
-            </button>
+            <div className="project-root-actions">
+              <button className="sidebar-icon" type="button" title="打开项目" aria-label="打开项目" onClick={chooseProject}>
+                <FolderPlus size={16} />
+              </button>
+              <button className="sidebar-icon" type="button" title="隐藏项目栏" aria-label="隐藏项目栏" onClick={closeProjectPanel}>
+                <PanelLeftClose size={16} />
+              </button>
+            </div>
           </div>
-
-          <button className="sidebar-new-project" type="button" onClick={chooseProject}>
-            <Plus size={16} />
-            <span>打开项目</span>
-          </button>
 
           <div className="sidebar-section-heading">
             <span>项目</span>
@@ -1122,46 +1179,93 @@ export function App() {
                 打开一个项目目录
               </button>
             ) : (
-              state.projects.map((project) => (
-                <div
-                  key={project.id}
-                  data-project-id={project.id}
-                  className={`project-item ${project.id === currentProject?.id ? "active" : ""} ${
-                    project.id === draggedProjectId ? "dragging" : ""
-                  } ${
-                    projectDropTarget?.id === project.id ? `drag-over ${projectDropTarget.placement}` : ""
-                  }`}
-                  title={project.path}
-                >
-                  <button
-                    className="project-drag-handle"
-                    title="拖动调整项目顺序"
-                    onPointerDown={(event) => startProjectDrag(project.id, event)}
-                  >
-                    <GripVertical size={14} />
-                  </button>
-                  <button
-                    className="project-folder-button"
-                    disabled={openingProjectFolderId === project.id}
-                    title="在文件管理器中打开目录"
-                    aria-label={`打开 ${project.name} 目录`}
-                    onClick={() => openProjectFolder(project.id)}
-                  >
-                    <FolderOpen className="project-item-icon" size={15} />
-                  </button>
-                  <button
-                    className="project-select"
-                    title={project.path}
-                    onClick={() => setActive(project.id)}
-                  >
-                    <span className="project-copy">
-                      <span className="project-title">{project.name}</span>
-                      <span className="project-path">{project.path}</span>
-                    </span>
-                  </button>
-                  <span className="project-time">{formatRelativeTime(project.lastOpenedAt)}前</span>
-                </div>
-              ))
+              state.projects.map((project) => {
+                const isActiveProject = project.id === currentProject?.id;
+                const sessions = codexSessionsByProject[project.id] || [];
+                const sessionsLoading = loadingCodexSessionProjectIds.has(project.id);
+                const sessionsError = codexSessionErrors[project.id];
+
+                return (
+                  <div className="project-group" key={project.id}>
+                    <div
+                      data-project-id={project.id}
+                      className={`project-item ${isActiveProject ? "active" : ""} ${
+                        project.id === draggedProjectId ? "dragging" : ""
+                      } ${
+                        projectDropTarget?.id === project.id ? `drag-over ${projectDropTarget.placement}` : ""
+                      }`}
+                      title={project.path}
+                    >
+                      <button
+                        className="project-drag-handle"
+                        title="拖动调整项目顺序"
+                        onPointerDown={(event) => startProjectDrag(project.id, event)}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                      <button
+                        className="project-folder-button"
+                        disabled={openingProjectFolderId === project.id}
+                        title="在文件管理器中打开目录"
+                        aria-label={`打开 ${project.name} 目录`}
+                        onClick={() => openProjectFolder(project.id)}
+                      >
+                        <FolderOpen className="project-item-icon" size={15} />
+                      </button>
+                      <button
+                        className="project-select"
+                        title={project.path}
+                        onClick={() => setActive(project.id)}
+                      >
+                        <span className="project-copy">
+                          <span className="project-title">{project.name}</span>
+                          <span className="project-path">{project.path}</span>
+                        </span>
+                      </button>
+                      <span className="project-time">{formatRelativeTime(project.lastOpenedAt)}前</span>
+                    </div>
+
+                    {isActiveProject && (
+                      <div className="project-sessions" aria-label={`${project.name} 历史会话`}>
+                        <div className="project-sessions-heading">
+                          <span>历史会话</span>
+                          {!sessionsLoading && !sessionsError && <small>{sessions.length}</small>}
+                        </div>
+                        {sessionsLoading ? (
+                          <div className="project-session-status">正在读取...</div>
+                        ) : sessionsError ? (
+                          <button
+                            className="project-session-status action"
+                            type="button"
+                            title={sessionsError}
+                            onClick={() => void loadCodexSessions(project.id)}
+                          >
+                            读取失败，点击重试
+                          </button>
+                        ) : sessions.length === 0 ? (
+                          <div className="project-session-status">暂无历史会话</div>
+                        ) : (
+                          sessions.map((session) => (
+                            <button
+                              className={`project-session-item ${
+                                selectedCodexSessionId === session.id ? "active" : ""
+                              }`}
+                              key={session.id}
+                              type="button"
+                              title={`${session.title}\n${session.cwd}`}
+                              onClick={() => void resumeCodexSession(project.id, session.id)}
+                            >
+                              <MessageSquare size={13} />
+                              <span>{session.title}</span>
+                              <small>{formatRelativeTime(session.updatedAt)}前</small>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </nav>
 
@@ -1170,7 +1274,7 @@ export function App() {
             <button
               className="footer-button"
               title="刷新项目"
-              onClick={() => loadState()}
+              onClick={() => void refreshProjectData()}
             >
               <RefreshCw size={16} />
               <span>刷新项目</span>
@@ -1465,6 +1569,7 @@ export function App() {
             activeProjectPath={currentProject?.path || null}
             appearance={terminalAppearance}
             controlRequest={terminalControlRequest}
+            sessionResumeRequest={sessionResumeRequest}
             onError={setError}
             onControlStateChange={setTerminalControlState}
             onProjectFocus={setActive}

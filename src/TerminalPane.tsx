@@ -27,10 +27,17 @@ interface TerminalPaneProps {
   activeProjectPath?: string | null;
   appearance: TerminalAppearanceSettings;
   commandRequest?: TerminalCommandRequest | null;
+  sessionResumeRequest?: CodexSessionResumeRequest | null;
   controlRequest?: TerminalPaneControlRequest | null;
   onError: (message: string) => void;
   onControlStateChange?: (state: TerminalPaneControlState) => void;
   onProjectFocus?: (projectId: string) => void | Promise<void>;
+}
+
+export interface CodexSessionResumeRequest {
+  id: number;
+  projectId: string;
+  sessionId: string;
 }
 
 export type TerminalDisplayMode = "tabs" | "tiles";
@@ -404,6 +411,7 @@ export function TerminalPane({
   activeProjectPath,
   appearance,
   commandRequest,
+  sessionResumeRequest,
   controlRequest,
   onError,
   onControlStateChange,
@@ -419,6 +427,7 @@ export function TerminalPane({
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const tileDragRef = useRef<TerminalTileDragState | null>(null);
   const lastRoutedCommandIdRef = useRef<number | null>(null);
+  const lastSessionResumeRequestIdRef = useRef<number | null>(null);
   const lastControlRequestIdRef = useRef<number | null>(null);
   const previousProjectIdRef = useRef(activeProjectId);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1003,6 +1012,29 @@ export function TerminalPane({
       request: commandRequest,
     });
   }, [commandRequest, terminalTabs.activeTabId]);
+
+  useEffect(() => {
+    if (
+      !sessionResumeRequest ||
+      lastSessionResumeRequestIdRef.current === sessionResumeRequest.id ||
+      activeProjectId !== sessionResumeRequest.projectId
+    ) {
+      return;
+    }
+
+    lastSessionResumeRequestIdRef.current = sessionResumeRequest.id;
+    const projectTab = terminalTabs.tabs.find((tab) => tab.projectId === sessionResumeRequest.projectId);
+    if (!projectTab) {
+      lastSessionResumeRequestIdRef.current = null;
+      return;
+    }
+
+    const tabId = projectTab.id;
+    setTerminalTabs((current) => ({ ...current, activeTabId: tabId }));
+    window.setTimeout(() => {
+      void terminalHandlesRef.current[tabId]?.resumeCodexSession(sessionResumeRequest.sessionId);
+    }, 0);
+  }, [activeProjectId, sessionResumeRequest, terminalTabs.activeTabId, terminalTabs.tabs]);
 
   useEffect(() => {
     terminalTabElementsRef.current[terminalTabs.activeTabId]?.scrollIntoView({

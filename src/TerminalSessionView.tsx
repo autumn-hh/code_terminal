@@ -204,6 +204,7 @@ export interface TerminalSessionRuntime {
 
 export interface TerminalSessionHandle {
   restartSession: () => Promise<void>;
+  resumeCodexSession: (sessionId: string) => Promise<void>;
   stopSession: () => Promise<void>;
   focus: () => void;
   fit: () => void;
@@ -2620,8 +2621,19 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       await startSession();
     }
 
+    async function resumeCodexSession(sessionId: string) {
+      const normalizedSessionId = sessionId.trim();
+      if (!normalizedSessionId) return;
+
+      await stopSession();
+      setConversationMessages([]);
+      pendingRawInputRef.current = formatCommandInput(`codex resume ${normalizedSessionId}`);
+      await startSession();
+    }
+
     useImperativeHandle(ref, () => ({
       restartSession,
+      resumeCodexSession,
       stopSession,
       focus() {
         if (viewMode === "terminal") {

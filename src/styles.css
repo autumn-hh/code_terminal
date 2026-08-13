@@ -220,7 +220,7 @@ textarea {
 
 .project-root {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 66px;
   align-items: center;
   gap: 6px;
   min-height: 40px;
@@ -308,27 +308,11 @@ textarea {
   border-color: color-mix(in srgb, var(--app-border, #ddddda) 78%, transparent);
 }
 
-.sidebar-new-project {
+.project-root-actions {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 34px;
-  margin: 3px 0 10px;
-  padding: 0 10px;
-  color: var(--app-text);
-  text-align: left;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--app-border, #ddddda) 68%, transparent);
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 620;
-}
-
-.sidebar-new-project:hover {
-  background: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 9%, transparent);
-  border-color: color-mix(in srgb, var(--app-border, #ddddda) 96%, transparent);
+  gap: 2px;
+  width: 66px;
 }
 
 .sidebar-section-heading {
@@ -436,6 +420,11 @@ textarea {
 .project-drag-handle:hover {
   color: var(--app-text);
   opacity: 1;
+}
+
+.project-group {
+  display: grid;
+  min-width: 0;
 }
 
 .project-item:hover .project-drag-handle,
@@ -624,6 +613,100 @@ textarea {
   height: 100%;
   overflow: hidden;
   background: var(--terminal-bg, #171716);
+}
+
+.project-sessions {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 2px 0 7px 30px;
+}
+
+.project-sessions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+  padding: 0 9px;
+  color: var(--app-soft);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.project-sessions-heading small {
+  color: inherit;
+  font: inherit;
+}
+
+.project-session-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--app-muted);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project-session-item > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-session-item > small {
+  color: var(--app-soft);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.project-session-item:hover {
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 8%, transparent);
+}
+
+.project-session-item.active {
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--terminal-accent, #8ab4ff) 13%, transparent);
+}
+
+.project-session-item.active > svg {
+  color: var(--terminal-accent, #8ab4ff);
+}
+
+.project-session-status {
+  min-width: 0;
+  min-height: 28px;
+  padding: 6px 9px;
+  overflow: hidden;
+  color: var(--app-soft);
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-session-status.action {
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project-session-status.action:hover {
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 8%, transparent);
 }
 
 .workspace-bar {
@@ -2498,6 +2581,10 @@ textarea {
 
   .sidebar.mobile-open .project-list {
     gap: 5px;
+  }
+
+  .sidebar.mobile-open .project-sessions {
+    padding-left: 24px;
   }
 
   .sidebar.mobile-open .project-item {
