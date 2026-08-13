@@ -81,7 +81,7 @@ textarea {
   position: relative;
   grid-column: 1 / -1;
   grid-row: 1;
-  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) 38px auto;
   align-items: center;
   z-index: 120;
   min-width: 0;
@@ -143,14 +143,76 @@ textarea {
   font-weight: 560;
 }
 
-.window-drag-region {
-  position: relative;
+.window-workspace-region {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   height: 100%;
+  padding: 0 12px;
 }
 
-.window-drag-region::after {
-  content: none;
+.window-workspace-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+
+.window-workspace-copy small {
+  flex: 0 0 auto;
+  color: var(--terminal-muted, #93a2ae);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.window-workspace-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--terminal-fg, #d8e1e8);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-chrome-button,
+.window-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--terminal-muted, #93a2ae);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.window-chrome-button:hover,
+.window-settings-button:hover,
+.window-settings-button.active {
+  color: var(--terminal-fg, #d8e1e8);
+  background: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 10%, transparent);
+}
+
+.window-settings-button.active {
+  color: var(--terminal-accent, #f26b38);
+}
+
+.window-mobile-project-menu-button {
+  display: none;
+}
+
+.window-workspace-actions {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 100%;
 }
 
 .window-controls {
@@ -188,9 +250,9 @@ textarea {
   grid-row: 2;
 }
 
-.shell.custom-window-chrome .workspace-bar {
-  min-height: 54px;
-  padding: 8px 16px;
+.shell.custom-window-chrome .settings-popover {
+  top: 8px;
+  max-height: calc(100% - 16px);
 }
 
 .mobile-project-backdrop {
@@ -713,9 +775,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  min-height: 54px;
-  padding: 8px 16px;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 12px;
   color: var(--terminal-fg, #e6edf2);
   background: color-mix(in srgb, var(--terminal-panel, #242421) 58%, var(--terminal-bg, #1b1b19));
   border-bottom: 1px solid color-mix(in srgb, var(--terminal-border, #383834) 66%, transparent);
@@ -724,7 +786,7 @@ textarea {
 .project-heading {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -732,43 +794,32 @@ textarea {
   display: none;
 }
 
-.terminal-mark {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  color: var(--terminal-accent, #8ab4ff);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--terminal-border, #383834) 74%, transparent);
-  border-radius: 6px;
+.workspace-context {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .workspace-kicker {
   display: block;
-  margin-bottom: 3px;
+  flex: 0 0 auto;
   color: var(--terminal-muted, #93a2ae);
   font-size: 10px;
-  font-weight: 720;
+  font-weight: 650;
   line-height: 1;
 }
 
 .project-heading h2 {
   margin: 0;
   color: var(--terminal-fg, #e6edf2);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0;
-}
-
-.project-heading p {
-  max-width: 68vw;
-  margin: 3px 0 0;
+  min-width: 0;
   overflow: hidden;
-  color: var(--terminal-muted, #93a2ae);
-  font-size: 12px;
-  line-height: 1.2;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -785,9 +836,9 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 0 10px;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
   color: var(--terminal-muted, #aaa79f);
   background: transparent;
   border: 1px solid transparent;
@@ -806,14 +857,14 @@ textarea {
 .settings-popover {
   display: grid;
   position: absolute;
-  top: 58px;
+  top: 44px;
   right: 12px;
   z-index: 100;
   grid-template-columns: minmax(0, 1fr) minmax(146px, 0.58fr);
   align-items: start;
   gap: 12px;
   width: min(680px, calc(100vw - var(--sidebar-width, 292px) - 24px));
-  max-height: min(620px, calc(100% - 70px));
+  max-height: min(620px, calc(100% - 56px));
   overflow-x: hidden;
   overflow-y: auto;
   padding: 12px;
@@ -2451,7 +2502,7 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) 38px auto;
   }
 
   .brand-copy small,
@@ -2491,33 +2542,44 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 34px auto;
     min-height: 36px;
     background: color-mix(in srgb, var(--terminal-panel, #0c1118) 92%, var(--terminal-bg, #070b10));
   }
 
   .window-title-cluster {
-    padding: 0 8px 0 10px;
-    color: var(--terminal-fg, #d8e1e8);
-    border-right: 0;
+    display: none;
   }
 
-  .window-brand-mark {
-    width: 22px;
-    height: 22px;
+  .window-workspace-region {
+    gap: 5px;
+    padding: 0 6px;
   }
 
-  .window-title-copy strong {
-    color: var(--terminal-fg, #d8e1e8);
+  .window-mobile-project-menu-button {
+    display: inline-flex;
+  }
+
+  .window-sidebar-open-button {
+    display: none;
+  }
+
+  .window-workspace-copy {
+    gap: 5px;
+  }
+
+  .window-workspace-copy strong {
     font-size: 11px;
   }
 
-  .window-title-copy small {
-    color: var(--terminal-muted, #93a2ae);
+  .window-workspace-actions {
+    width: 34px;
   }
 
-  .window-drag-region {
-    display: none;
+  .window-settings-button {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
   }
 
   .window-control {
@@ -2602,13 +2664,10 @@ textarea {
   .workspace-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 48px;
-    padding: 8px 10px;
+    min-height: 40px;
+    padding: 0 8px;
   }
 
-  .terminal-mark,
-  .workspace-kicker,
-  .project-heading p,
   .terminal-bar-title,
   .terminal-tab-main span:last-child,
   .terminal-cell-path,
@@ -2661,30 +2720,31 @@ textarea {
   .project-heading h2 {
     max-width: 100%;
     overflow: hidden;
-    font-size: 14px;
+    font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .settings-trigger {
-    width: 34px;
-    min-height: 34px;
+    width: 32px;
+    min-height: 32px;
     padding: 0;
   }
 
-  .settings-trigger span {
-    display: none;
-  }
-
   .settings-popover {
-    top: 50px;
+    top: 44px;
     right: 6px;
     left: 6px;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 9px;
     width: auto;
-    max-height: calc(100% - 58px);
+    max-height: calc(100% - 50px);
     padding: 10px;
+  }
+
+  .shell.custom-window-chrome .settings-popover {
+    top: 6px;
+    max-height: calc(100% - 12px);
   }
 
   .settings-row {
@@ -3001,8 +3061,8 @@ textarea {
 
 @media (max-height: 760px) {
   .workspace-bar {
-    min-height: 50px;
-    padding: 8px 14px;
+    min-height: 40px;
+    padding: 0 12px;
   }
 
   .terminal-bar {
@@ -3014,13 +3074,6 @@ textarea {
     gap: 9px;
   }
 
-  .terminal-mark {
-    width: 30px;
-    height: 30px;
-  }
-
-  .workspace-kicker,
-  .project-heading p,
   .terminal-bar-title,
   .terminal-cell-state,
   .terminal-cell-path {
@@ -3028,7 +3081,7 @@ textarea {
   }
 
   .project-heading h2 {
-    font-size: 15px;
+    font-size: 13px;
   }
 
   .terminal-pane {
@@ -3099,8 +3152,8 @@ textarea {
 
 @media (max-height: 560px) {
   .workspace-bar {
-    min-height: 42px;
-    padding: 6px 12px;
+    min-height: 38px;
+    padding: 0 10px;
   }
 
   .terminal-pane {

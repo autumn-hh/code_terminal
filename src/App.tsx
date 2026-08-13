@@ -14,7 +14,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PanelTop,
-  PanelsTopLeft,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -986,7 +985,54 @@ export function App() {
               <small>{windowChromeSubtitle}</small>
             </span>
           </div>
-          <div className="window-drag-region" aria-hidden="true" />
+          <div className="window-workspace-region">
+            <button
+              aria-expanded={mobileProjectsOpen}
+              className="window-chrome-button window-mobile-project-menu-button"
+              title="切换项目"
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => setMobileProjectsOpen(true)}
+            >
+              <PanelLeftOpen size={15} />
+            </button>
+            {isSidebarCollapsed && (
+              <button
+                className="window-chrome-button window-sidebar-open-button"
+                title="显示项目栏"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                <PanelLeftOpen size={15} />
+              </button>
+            )}
+            <span
+              className="window-workspace-copy"
+              title={currentProject?.path || "尚未选择工作区"}
+            >
+              <small>当前工作区</small>
+              <strong>{currentProject?.name || emptyProjectTitle}</strong>
+            </span>
+          </div>
+          <div
+            className="window-workspace-actions"
+            ref={settingsMenuRef}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <button
+              aria-expanded={settingsOpen}
+              aria-haspopup="dialog"
+              aria-label="设置"
+              className={`window-settings-button ${settingsOpen ? "active" : ""}`}
+              title="设置"
+              type="button"
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <Settings size={15} />
+            </button>
+          </div>
           <div
             className="window-controls"
             onDoubleClick={(event) => event.stopPropagation()}
@@ -1315,49 +1361,47 @@ export function App() {
       )}
 
       <section className="workspace">
-        <header className="workspace-bar">
-          <div className="project-heading">
-            <button
-              className="icon-button mobile-project-menu-button"
-              aria-expanded={mobileProjectsOpen}
-              title="切换项目"
-              onClick={() => setMobileProjectsOpen(true)}
-            >
-              <PanelLeftOpen size={16} />
-            </button>
-            {isSidebarCollapsed && (
+        {!hasCustomWindowChrome && (
+          <header className="workspace-bar">
+            <div className="project-heading">
               <button
-                className="icon-button desktop-sidebar-open-button"
-                title="显示项目栏"
-                onClick={() => setSidebarCollapsed(false)}
+                className="icon-button mobile-project-menu-button"
+                aria-expanded={mobileProjectsOpen}
+                title="切换项目"
+                onClick={() => setMobileProjectsOpen(true)}
               >
                 <PanelLeftOpen size={16} />
               </button>
-            )}
-            <div className="terminal-mark">
-              <PanelsTopLeft size={18} />
+              {isSidebarCollapsed && (
+                <button
+                  className="icon-button desktop-sidebar-open-button"
+                  title="显示项目栏"
+                  onClick={() => setSidebarCollapsed(false)}
+                >
+                  <PanelLeftOpen size={16} />
+                </button>
+              )}
+              <div className="workspace-context" title={currentProject?.path || "尚未选择工作区"}>
+                <span className="workspace-kicker">当前工作区</span>
+                <h2>{currentProject?.name || emptyProjectTitle}</h2>
+              </div>
             </div>
-            <div>
-              <span className="workspace-kicker">当前工作区</span>
-              <h2>{currentProject?.name || emptyProjectTitle}</h2>
-              <p>{currentProject?.path || "选择项目后，右侧终端会切到对应目录，可按瓦片查看多个任务"}</p>
-            </div>
-          </div>
 
-          <div className="workspace-actions" ref={settingsMenuRef}>
-            <button
-              aria-expanded={settingsOpen}
-              aria-haspopup="dialog"
-              className={`settings-trigger ${settingsOpen ? "active" : ""}`}
-              title="设置"
-              type="button"
-              onClick={() => setSettingsOpen((open) => !open)}
-            >
-              <Settings size={16} />
-              <span>设置</span>
-            </button>
-          </div>
-        </header>
+            <div className="workspace-actions" ref={settingsMenuRef}>
+              <button
+                aria-expanded={settingsOpen}
+                aria-haspopup="dialog"
+                aria-label="设置"
+                className={`settings-trigger ${settingsOpen ? "active" : ""}`}
+                title="设置"
+                type="button"
+                onClick={() => setSettingsOpen((open) => !open)}
+              >
+                <Settings size={16} />
+              </button>
+            </div>
+          </header>
+        )}
 
         {error && <div className="error-strip">{error}</div>}
         {settingsOpen && (
