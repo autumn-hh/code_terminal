@@ -2897,6 +2897,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       terminal.options.theme = getXtermTheme(appearance);
       terminal.options.fontSize = appearance.fontSize;
       terminal.options.lineHeight = appearance.lineHeight;
+      if (terminal.rows > 0) {
+        terminal.refresh(0, terminal.rows - 1);
+      }
       lastFitHostSizeRef.current = null;
       scheduleFitAndResize({ force: true, settle: true });
     }, [appearance]);

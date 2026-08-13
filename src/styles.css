@@ -1768,19 +1768,6 @@ textarea {
     transform 140ms ease;
 }
 
-.terminal-cell::before {
-  position: absolute;
-  top: 0;
-  right: auto;
-  left: 0;
-  width: 2px;
-  height: 100%;
-  content: "";
-  background: transparent;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .terminal-cell.visible {
   display: grid;
 }
@@ -1788,13 +1775,6 @@ textarea {
 .terminal-cell.active {
   border-color: color-mix(in srgb, var(--terminal-border, #383834) 82%, transparent);
   box-shadow: none;
-}
-
-.terminal-cell.active::before {
-  width: 2px;
-  height: 100%;
-  background: var(--terminal-accent, #f26b38);
-  opacity: 1;
 }
 
 .terminal-cell.dragging {

@@ -211,6 +211,7 @@ export function App() {
   const [loadingCodexSessionProjectIds, setLoadingCodexSessionProjectIds] = useState<Set<string>>(new Set());
   const [codexSessionErrors, setCodexSessionErrors] = useState<Record<string, string | null>>({});
   const [selectedCodexSessionId, setSelectedCodexSessionId] = useState<string | null>(null);
+  const [expandedSessionProjectId, setExpandedSessionProjectId] = useState<string | null>(null);
   const [terminalAppearance, setTerminalAppearance] = useState<TerminalAppearanceSettings>(
     readStoredTerminalAppearance,
   );
@@ -463,6 +464,7 @@ export function App() {
   useEffect(() => {
     if (!currentProject?.id) return;
 
+    setExpandedSessionProjectId(currentProject.id);
     void loadCodexSessions(currentProject.id);
   }, [currentProject?.id]);
 
@@ -616,6 +618,16 @@ export function App() {
         return next;
       });
     }
+  }
+
+  async function selectProject(projectId: string) {
+    if (currentProject?.id === projectId) {
+      setExpandedSessionProjectId((current) => (current === projectId ? null : projectId));
+      return;
+    }
+
+    setExpandedSessionProjectId(projectId);
+    await setActive(projectId);
   }
 
   async function resumeCodexSession(projectId: string, sessionId: string) {
@@ -1181,6 +1193,7 @@ export function App() {
             ) : (
               state.projects.map((project) => {
                 const isActiveProject = project.id === currentProject?.id;
+                const isSessionsExpanded = isActiveProject && expandedSessionProjectId === project.id;
                 const sessions = codexSessionsByProject[project.id] || [];
                 const sessionsLoading = loadingCodexSessionProjectIds.has(project.id);
                 const sessionsError = codexSessionErrors[project.id];
@@ -1213,9 +1226,11 @@ export function App() {
                         <FolderOpen className="project-item-icon" size={15} />
                       </button>
                       <button
+                        aria-controls={`project-sessions-${project.id}`}
+                        aria-expanded={isSessionsExpanded}
                         className="project-select"
                         title={project.path}
-                        onClick={() => setActive(project.id)}
+                        onClick={() => void selectProject(project.id)}
                       >
                         <span className="project-copy">
                           <span className="project-title">{project.name}</span>
@@ -1225,8 +1240,12 @@ export function App() {
                       <span className="project-time">{formatRelativeTime(project.lastOpenedAt)}前</span>
                     </div>
 
-                    {isActiveProject && (
-                      <div className="project-sessions" aria-label={`${project.name} 历史会话`}>
+                    {isSessionsExpanded && (
+                      <div
+                        className="project-sessions"
+                        id={`project-sessions-${project.id}`}
+                        aria-label={`${project.name} 历史会话`}
+                      >
                         <div className="project-sessions-heading">
                           <span>历史会话</span>
                           {!sessionsLoading && !sessionsError && <small>{sessions.length}</small>}
