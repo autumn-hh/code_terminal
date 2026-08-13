@@ -12,7 +12,7 @@
     "build": "tauri build --no-bundle -- --bin code-terminal",
     "bundle": "tauri build",
     "build:frontend": "tsc && vite build",
-    "test:frontend": "tsc -p tsconfig.test.json && node --test tests/terminalCursorController.test.mjs",
+    "test:frontend": "tsc -p tsconfig.test.json && node --test tests/terminalCursorController.test.mjs tests/terminalThemes.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 1420"
   },
   "dependencies": {

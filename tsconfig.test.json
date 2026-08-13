@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
     "outDir": ".test-dist"
   },
-  "include": ["src/terminalCursorController.ts"]
+  "include": ["src/terminalCursorController.ts", "src/terminalThemes.ts", "src/types.ts"]
 }

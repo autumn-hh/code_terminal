@@ -47,13 +47,13 @@ const fallbackTerminalPreset: BuiltInTerminalThemePreset = "workbench";
 export const terminalThemePresets: Record<BuiltInTerminalThemePreset, TerminalThemePalette> = {
   workbench: {
     label: "深色",
-    background: "#171716",
-    foreground: "#f1eee8",
-    cursor: "#f97316",
-    selectionBackground: "#4a3020",
-    panel: "#1f1f1d",
-    border: "#34332f",
-    muted: "#a19e96",
+    background: "#1b1b19",
+    foreground: "#f2f0ea",
+    cursor: "#f26b38",
+    selectionBackground: "#493024",
+    panel: "#242421",
+    border: "#383834",
+    muted: "#aaa79f",
     black: "#343330",
     red: "#f2777a",
     green: "#91c58b",
@@ -73,29 +73,29 @@ export const terminalThemePresets: Record<BuiltInTerminalThemePreset, TerminalTh
   },
   daylight: {
     label: "浅色",
-    background: "#f8fafc",
-    foreground: "#1f2933",
-    cursor: "#1769aa",
-    selectionBackground: "#cfe4f6",
-    panel: "#eef3f7",
-    border: "#d7e0e8",
-    muted: "#667382",
-    black: "#e6edf3",
-    red: "#c2414b",
-    green: "#2f855a",
-    yellow: "#b7791f",
-    blue: "#1769aa",
-    magenta: "#7b3fb4",
-    cyan: "#108999",
-    white: "#475569",
-    brightBlack: "#718096",
-    brightRed: "#e05260",
-    brightGreen: "#38a169",
-    brightYellow: "#d69e2e",
-    brightBlue: "#3182ce",
-    brightMagenta: "#9f7aea",
-    brightCyan: "#22a6b3",
-    brightWhite: "#111827",
+    background: "#fbfbfa",
+    foreground: "#242421",
+    cursor: "#d85f2b",
+    selectionBackground: "#e5e5e1",
+    panel: "#f1f1ee",
+    border: "#ddddda",
+    muted: "#706f69",
+    black: "#30302d",
+    red: "#b42318",
+    green: "#237a57",
+    yellow: "#946200",
+    blue: "#315f9c",
+    magenta: "#7d4e92",
+    cyan: "#166f7d",
+    white: "#d8d8d3",
+    brightBlack: "#77766f",
+    brightRed: "#d13b2f",
+    brightGreen: "#2f8f68",
+    brightYellow: "#ad7500",
+    brightBlue: "#4776b3",
+    brightMagenta: "#9664ab",
+    brightCyan: "#238696",
+    brightWhite: "#ffffff",
   },
   midnight: {
     label: "午夜",
@@ -338,6 +338,10 @@ export function normalizeTerminalAppearance(
   const basePreset: BuiltInTerminalThemePreset = preset === "custom" ? fallbackTerminalPreset : preset;
   const base = getTerminalPresetAppearance(basePreset, fontSize, lineHeight);
 
+  if (preset !== "custom") {
+    return base;
+  }
+
   return {
     preset,
     fontSize,
@@ -352,6 +356,10 @@ export function getTerminalPalette(appearance: TerminalAppearanceSettings) {
   const basePreset: BuiltInTerminalThemePreset =
     appearance.preset === "custom" ? fallbackTerminalPreset : appearance.preset;
   const base = terminalThemePresets[basePreset];
+
+  if (appearance.preset !== "custom") {
+    return base;
+  }
 
   return {
     ...base,
@@ -383,12 +391,12 @@ export function getTerminalChrome(appearance: TerminalAppearanceSettings) {
     muted,
     accent: palette.cursor,
     sidebar: isLight
-      ? "#eef3f7"
+      ? "#f0f0ed"
       : isCustom
         ? `color-mix(in srgb, ${palette.background} 94%, ${palette.foreground} 4%)`
         : palette.panel,
     sidebarStrong: isLight
-      ? "#e3eaf2"
+      ? "#e4e4e0"
       : isCustom
         ? `color-mix(in srgb, ${palette.background} 86%, ${palette.foreground} 7%)`
         : palette.background,
