@@ -1,11 +1,6 @@
 import {
-  Ban,
-  PanelTop,
   Plus,
-  RotateCcw,
   SendHorizontal,
-  Square,
-  SquareStack,
   Terminal,
   X,
 } from "lucide-react";
@@ -32,8 +27,25 @@ interface TerminalPaneProps {
   activeProjectPath?: string | null;
   appearance: TerminalAppearanceSettings;
   commandRequest?: TerminalCommandRequest | null;
+  controlRequest?: TerminalPaneControlRequest | null;
   onError: (message: string) => void;
+  onControlStateChange?: (state: TerminalPaneControlState) => void;
   onProjectFocus?: (projectId: string) => void | Promise<void>;
+}
+
+export type TerminalDisplayMode = "tabs" | "tiles";
+export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "interrupt" | "restart" | "stop";
+
+export interface TerminalPaneControlRequest {
+  id: number;
+  action: TerminalPaneControlAction;
+}
+
+export interface TerminalPaneControlState {
+  displayMode: TerminalDisplayMode;
+  canInterrupt: boolean;
+  canRestart: boolean;
+  canStop: boolean;
 }
 
 interface TerminalProjectBinding {
@@ -55,7 +67,6 @@ interface TerminalTabsState {
   activeTabId: string;
 }
 
-type TerminalDisplayMode = "tabs" | "tiles";
 type TerminalDockZone = "top" | "right" | "bottom" | "left" | "center";
 type TerminalFocusTarget = "composer" | "terminal" | "none";
 type ResizeAxis = "column" | "row";
@@ -393,7 +404,9 @@ export function TerminalPane({
   activeProjectPath,
   appearance,
   commandRequest,
+  controlRequest,
   onError,
+  onControlStateChange,
   onProjectFocus,
 }: TerminalPaneProps) {
   const nextTabIndexRef = useRef(2);
@@ -406,6 +419,7 @@ export function TerminalPane({
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const tileDragRef = useRef<TerminalTileDragState | null>(null);
   const lastRoutedCommandIdRef = useRef<number | null>(null);
+  const lastControlRequestIdRef = useRef<number | null>(null);
   const previousProjectIdRef = useRef(activeProjectId);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const allowNextComposerLineBreakRef = useRef(false);
@@ -911,6 +925,38 @@ export function TerminalPane({
   }, [layoutPreferences]);
 
   useEffect(() => {
+    onControlStateChange?.({
+      displayMode: layoutPreferences.displayMode,
+      canInterrupt: Boolean(activeRuntime?.session),
+      canRestart: !activeRuntime?.isStarting,
+      canStop: Boolean(activeRuntime?.session),
+    });
+  }, [activeRuntime?.isStarting, activeRuntime?.session, layoutPreferences.displayMode, onControlStateChange]);
+
+  useEffect(() => {
+    if (!controlRequest || lastControlRequestIdRef.current === controlRequest.id) return;
+
+    lastControlRequestIdRef.current = controlRequest.id;
+    switch (controlRequest.action) {
+      case "show-tabs":
+        setLayoutPreferences({ ...layoutPreferences, displayMode: "tabs" });
+        break;
+      case "show-tiles":
+        setLayoutPreferences({ ...layoutPreferences, displayMode: "tiles" });
+        break;
+      case "interrupt":
+        interruptActiveTerminal();
+        break;
+      case "restart":
+        restartActiveTerminal();
+        break;
+      case "stop":
+        stopActiveTerminal();
+        break;
+    }
+  }, [controlRequest?.id]);
+
+  useEffect(() => {
     if (previousProjectIdRef.current === activeProjectId) return;
 
     previousProjectIdRef.current = activeProjectId;
@@ -1109,53 +1155,6 @@ export function TerminalPane({
           </button>
         </div>
 
-        <div className="terminal-actions">
-          <div className="terminal-layout-switch" aria-label="终端显示方式">
-            <button
-              className={`terminal-layout-button ${layoutPreferences.displayMode === "tabs" ? "active" : ""}`}
-              title="单 Tab 显示"
-              onClick={() => updateLayoutPreferences({ ...layoutPreferences, displayMode: "tabs" })}
-            >
-              <PanelTop size={13} />
-              <span>单 Tab</span>
-            </button>
-            <button
-              className={`terminal-layout-button ${layoutPreferences.displayMode === "tiles" ? "active" : ""}`}
-              title="多瓦片显示"
-              onClick={() => updateLayoutPreferences({ ...layoutPreferences, displayMode: "tiles" })}
-            >
-              <SquareStack size={13} />
-              <span>多瓦片</span>
-            </button>
-          </div>
-          <button
-            className="terminal-action"
-            title="中止当前终端"
-            disabled={!activeRuntime?.session}
-            onClick={interruptActiveTerminal}
-          >
-            <Ban size={14} />
-            <span>中止</span>
-          </button>
-          <button
-            className="terminal-action"
-            title="重启当前终端"
-            disabled={activeRuntime?.isStarting}
-            onClick={restartActiveTerminal}
-          >
-            <RotateCcw size={14} />
-            <span>重启</span>
-          </button>
-          <button
-            className="terminal-action"
-            title="停止当前终端"
-            disabled={!activeRuntime?.session}
-            onClick={stopActiveTerminal}
-          >
-            <Square size={13} />
-            <span>停止</span>
-          </button>
-        </div>
       </header>
 
       <div

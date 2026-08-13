@@ -1,4 +1,5 @@
 import {
+  Ban,
   ChevronLeft,
   Folder,
   GripVertical,
@@ -10,9 +11,14 @@ import {
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelTop,
   PanelsTopLeft,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Settings,
+  Square,
+  SquareStack,
   SquareTerminal,
   Trash2,
   X,
@@ -29,7 +35,12 @@ import {
   startWindowDrag,
   toggleWindowMaximize,
 } from "./tauriRuntime";
-import { TerminalPane } from "./TerminalPane";
+import {
+  TerminalPane,
+  type TerminalPaneControlAction,
+  type TerminalPaneControlRequest,
+  type TerminalPaneControlState,
+} from "./TerminalPane";
 import {
   clampTerminalFontSize,
   clampTerminalLineHeight,
@@ -174,7 +185,7 @@ export function App() {
   const [state, setState] = useState<WorkbenchState>(emptyState);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileProjectsOpen, setMobileProjectsOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [mobileChromeHidden, setMobileChromeHidden] = useState(readStoredMobileChromeHidden);
@@ -202,7 +213,16 @@ export function App() {
   );
   const [fontSizeInput, setFontSizeInput] = useState(() => String(terminalAppearance.fontSize));
   const [lineHeightInput, setLineHeightInput] = useState(() => terminalAppearance.lineHeight.toFixed(2));
+  const [terminalControlRequest, setTerminalControlRequest] = useState<TerminalPaneControlRequest | null>(null);
+  const [terminalControlState, setTerminalControlState] = useState<TerminalPaneControlState>({
+    displayMode: "tiles",
+    canInterrupt: false,
+    canRestart: true,
+    canStop: false,
+  });
   const projectListRef = useRef<HTMLElement | null>(null);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const terminalControlRequestIdRef = useRef(0);
   const sidebarLayoutRef = useRef(sidebarLayout);
   const sidebarResizeRef = useRef<{
     pointerId: number;
@@ -219,9 +239,6 @@ export function App() {
     [state.projects, windowProjectId],
   );
   const currentProject = windowProject || activeProject;
-  const appHeaderTitle = currentProject?.name || emptyProjectTitle;
-  const appHeaderSubtitle = currentProject?.path || "打开项目目录";
-  const appHeaderTooltip = currentProject?.path || emptyProjectTitle;
   const windowChromeTitle = appWindowTitle;
   const windowChromeSubtitle = appWindowSubtitle;
   const windowChromeTooltip = currentProject?.name
@@ -371,6 +388,29 @@ export function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileProjectsOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (!settingsMenuRef.current?.contains(target) && !target.closest(".settings-popover")) {
+        setSettingsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (!projectPickerOpen) return;
@@ -655,6 +695,17 @@ export function App() {
     }
 
     setSidebarCollapsed(true);
+  }
+
+  function requestTerminalControl(action: TerminalPaneControlAction, closeSettings = false) {
+    terminalControlRequestIdRef.current += 1;
+    setTerminalControlRequest({
+      id: terminalControlRequestIdRef.current,
+      action,
+    });
+    if (closeSettings) {
+      setSettingsOpen(false);
+    }
   }
 
   function startSidebarResize(event: React.PointerEvent<HTMLDivElement>) {
@@ -1037,21 +1088,28 @@ export function App() {
       {(!isSidebarCollapsed || mobileProjectsOpen) && (
         <aside className={`sidebar ${mobileProjectsOpen ? "mobile-open" : ""}`} aria-label="项目列表">
           <div className="project-root">
-            <div className="project-root-title" title={appHeaderTooltip}>
+            <div className="project-root-title" title={appWindowTitle}>
               <span className="brand-mark">
                 <SquareTerminal size={18} />
               </span>
               <span className="brand-copy">
-                <strong>{appHeaderTitle}</strong>
-                <small>{appHeaderSubtitle}</small>
+                <strong>{appWindowTitle}</strong>
+                <small>{appWindowSubtitle}</small>
               </span>
             </div>
-            <button className="sidebar-icon" title="打开项目" onClick={chooseProject}>
-              <Plus size={16} />
-            </button>
             <button className="sidebar-icon" title="隐藏项目栏" onClick={closeProjectPanel}>
               <PanelLeftClose size={16} />
             </button>
+          </div>
+
+          <button className="sidebar-new-project" type="button" onClick={chooseProject}>
+            <Plus size={16} />
+            <span>打开项目</span>
+          </button>
+
+          <div className="sidebar-section-heading">
+            <span>项目</span>
+            <small>{state.projects.length}</small>
           </div>
 
           <nav
@@ -1102,14 +1160,6 @@ export function App() {
                     </span>
                   </button>
                   <span className="project-time">{formatRelativeTime(project.lastOpenedAt)}前</span>
-                  <button
-                    className="project-window-button"
-                    disabled={openingProjectWindowId === project.id}
-                    title="新窗口打开这个项目"
-                    onClick={() => openProjectWindow(project.id)}
-                  >
-                    <ExternalLink size={13} />
-                  </button>
                 </div>
               ))
             )}
@@ -1119,11 +1169,11 @@ export function App() {
             <span className="project-count">{state.projects.length} 个项目</span>
             <button
               className="footer-button"
-              title="刷新"
+              title="刷新项目"
               onClick={() => loadState()}
             >
               <RefreshCw size={16} />
-              刷新
+              <span>刷新项目</span>
             </button>
           </div>
           <div
@@ -1171,47 +1221,131 @@ export function App() {
             </div>
           </div>
 
-          <div className="workspace-actions">
-            {currentProject && (
-              <button
-                className="icon-button"
-                disabled={openingProjectWindowId === currentProject.id}
-                title="新窗口打开当前项目"
-                onClick={() => openProjectWindow(currentProject.id)}
-              >
-                <ExternalLink size={16} />
-              </button>
-            )}
-
+          <div className="workspace-actions" ref={settingsMenuRef}>
             <button
-              className={`icon-button ${appearanceOpen ? "active" : ""}`}
-              title="终端外观"
-              onClick={() => setAppearanceOpen((open) => !open)}
-            >
-              <Palette size={16} />
-            </button>
-
-            <button
-              className={`icon-button mobile-chrome-toggle-button ${mobileChromeHidden ? "active" : ""}`}
-              title={mobileChromeHidden ? "显示顶部功能" : "隐藏顶部功能"}
+              aria-expanded={settingsOpen}
+              aria-haspopup="dialog"
+              className={`settings-trigger ${settingsOpen ? "active" : ""}`}
+              title="设置"
               type="button"
-              aria-pressed={mobileChromeHidden}
-              onClick={() => setMobileChromeHidden((hidden) => !hidden)}
+              onClick={() => setSettingsOpen((open) => !open)}
             >
-              {mobileChromeHidden ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <Settings size={16} />
+              <span>设置</span>
             </button>
-
-            {currentProject && (
-              <button className="icon-button danger" title="移除项目" onClick={() => removeProject(currentProject.id)}>
-                <Trash2 size={16} />
-              </button>
-            )}
           </div>
         </header>
 
         {error && <div className="error-strip">{error}</div>}
-        {appearanceOpen && (
-          <section className="appearance-bar" aria-label="终端外观">
+        {settingsOpen && (
+          <section className="settings-popover" role="dialog" aria-label="工作区设置">
+            <header className="settings-popover-header">
+              <strong>设置</strong>
+              <button title="关闭设置" type="button" onClick={() => setSettingsOpen(false)}>
+                <X size={15} />
+              </button>
+            </header>
+
+            <div className="settings-row">
+              <span className="settings-row-label">终端布局</span>
+              <div className="settings-segments" role="group" aria-label="终端显示方式">
+                <button
+                  className={terminalControlState.displayMode === "tabs" ? "active" : ""}
+                  type="button"
+                  onClick={() => requestTerminalControl("show-tabs")}
+                >
+                  <PanelTop size={14} />
+                  单 Tab
+                </button>
+                <button
+                  className={terminalControlState.displayMode === "tiles" ? "active" : ""}
+                  type="button"
+                  onClick={() => requestTerminalControl("show-tiles")}
+                >
+                  <SquareStack size={14} />
+                  多瓦片
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row-label">当前会话</span>
+              <div className="settings-command-grid">
+                <button
+                  disabled={!terminalControlState.canInterrupt}
+                  type="button"
+                  onClick={() => requestTerminalControl("interrupt", true)}
+                >
+                  <Ban size={14} />
+                  中止
+                </button>
+                <button
+                  disabled={!terminalControlState.canRestart}
+                  type="button"
+                  onClick={() => requestTerminalControl("restart", true)}
+                >
+                  <RotateCcw size={14} />
+                  重启
+                </button>
+                <button
+                  disabled={!terminalControlState.canStop}
+                  type="button"
+                  onClick={() => requestTerminalControl("stop", true)}
+                >
+                  <Square size={13} />
+                  停止
+                </button>
+              </div>
+            </div>
+
+            {currentProject && (
+              <div className="settings-row settings-project-actions">
+                <span className="settings-row-label">工作区</span>
+                <div className="settings-command-grid">
+                  <button
+                    disabled={openingProjectWindowId === currentProject.id}
+                    type="button"
+                    onClick={() => void openProjectWindow(currentProject.id)}
+                  >
+                    <ExternalLink size={14} />
+                    新窗口
+                  </button>
+                  <button
+                    className="danger"
+                    type="button"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      void removeProject(currentProject.id);
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    移除项目
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="settings-row settings-mobile-actions">
+              <span className="settings-row-label">界面</span>
+              <div className="settings-command-grid">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setMobileChromeHidden(true);
+                  }}
+                >
+                  <Maximize2 size={14} />
+                  隐藏顶部
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-divider" />
+            <div className="settings-section-title">
+              <Palette size={14} />
+              <span>终端外观</span>
+            </div>
             <div className="appearance-group theme-group">
               <span className="appearance-label">主题</span>
               <div className="theme-segments">
@@ -1330,7 +1464,9 @@ export function App() {
             activeProjectName={currentProject?.name || null}
             activeProjectPath={currentProject?.path || null}
             appearance={terminalAppearance}
+            controlRequest={terminalControlRequest}
             onError={setError}
+            onControlStateChange={setTerminalControlState}
             onProjectFocus={setActive}
           />
         )}
