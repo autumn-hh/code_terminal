@@ -10,6 +10,8 @@ import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from
 import { createClientId } from "./ids";
 import { invoke, isTauriRuntime, listen } from "./tauriRuntime";
 import { getXtermTheme } from "./terminalThemes";
+import { encodeVirtualKey } from "./virtualKeyboard";
+import type { VirtualKey, VirtualKeyModifiers } from "./virtualKeyboard";
 import type {
   TerminalAppearanceSettings,
   TerminalCommandRequest,
@@ -213,6 +215,7 @@ export interface TerminalSessionHandle {
   fit: () => void;
   interrupt: () => void;
   sendRawInput: (input: string) => void;
+  sendVirtualKey: (key: VirtualKey, modifiers: VirtualKeyModifiers) => void;
   sendComposerInput: (input: string) => void;
 }
 
@@ -2724,6 +2727,16 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       },
       sendRawInput(input: string) {
         sendRawOrQueueInput(input);
+      },
+      sendVirtualKey(key, modifiers) {
+        const terminal = terminalRef.current;
+        const input = encodeVirtualKey(key, modifiers, terminal?.modes);
+        if (!input) return;
+        if (terminal && sessionIdRef.current) {
+          terminal.input(input, true);
+        } else {
+          sendRawOrQueueInput(input);
+        }
       },
       sendComposerInput(input: string) {
         appendConversationMessage("user", input);

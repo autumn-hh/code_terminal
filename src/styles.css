@@ -81,7 +81,7 @@ textarea {
   position: relative;
   grid-column: 1 / -1;
   grid-row: 1;
-  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) 38px auto;
+  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) 76px auto;
   align-items: center;
   z-index: 120;
   min-width: 0;
@@ -209,9 +209,10 @@ textarea {
 }
 
 .window-workspace-actions {
-  display: grid;
-  place-items: center;
-  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: 76px;
   height: 100%;
 }
 
@@ -257,7 +258,7 @@ textarea {
 }
 
 .shell.mac-native-chrome .window-chrome {
-  grid-template-columns: minmax(0, 1fr) 38px auto;
+  grid-template-columns: minmax(0, 1fr) 76px auto;
 }
 
 .shell.custom-window-chrome .sidebar,
@@ -1706,6 +1707,145 @@ textarea {
   min-width: 0;
 }
 
+.virtual-keyboard {
+  --key-edge: color-mix(in srgb, var(--terminal-bg, #1b1b19) 84%, var(--terminal-fg, #f2f0ea));
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 4px 10px max(9px, env(safe-area-inset-bottom, 0px));
+  color: var(--terminal-fg, #f2f0ea);
+  background: var(--terminal-panel, #242421);
+  border-top: 1px solid var(--terminal-border, #383834);
+}
+
+.virtual-keyboard-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 25px;
+  padding-bottom: 4px;
+  font-size: 10px;
+}
+
+.virtual-keyboard-header strong {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.virtual-keyboard-header > span {
+  overflow: hidden;
+  color: var(--terminal-muted, #aaa79f);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.virtual-keyboard-header > button {
+  display: grid;
+  flex: 0 0 24px;
+  place-items: center;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.compact-keyboard-deck {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px 6px;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 7px 7px 10px;
+  background: color-mix(in srgb, var(--terminal-bg, #1b1b19) 86%, var(--terminal-panel, #242421));
+  border: 1px solid var(--terminal-border, #383834);
+  border-radius: 9px;
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--terminal-bg, #1b1b19) 70%, transparent);
+  user-select: none;
+}
+
+.virtual-key {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-width: 0;
+  height: 34px;
+  place-items: center;
+  padding: 0 3px;
+  color: var(--terminal-fg, #f2f0ea);
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--terminal-panel, #242421) 88%, var(--terminal-fg, #f2f0ea)),
+    var(--terminal-panel, #242421) 65%);
+  border: 1px solid color-mix(in srgb, var(--terminal-border, #383834) 70%, var(--terminal-fg, #f2f0ea));
+  border-bottom-color: var(--key-edge);
+  border-radius: 5px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--terminal-fg, #f2f0ea) 15%, transparent),
+    inset 2px 0 3px color-mix(in srgb, var(--terminal-fg, #f2f0ea) 4%, transparent),
+    0 4px 0 var(--key-edge),
+    0 5px 2px color-mix(in srgb, var(--terminal-bg, #1b1b19) 75%, transparent);
+  font-family: var(--terminal-font-family, monospace);
+  font-size: 11px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms ease, background 120ms ease;
+}
+
+.keycap-legend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.virtual-key.arrow {
+  font-size: 20px;
+}
+
+.virtual-key.delete {
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--terminal-accent, #f26b38) 30%, var(--terminal-panel, #242421)),
+    color-mix(in srgb, var(--terminal-accent, #f26b38) 12%, var(--terminal-panel, #242421)));
+}
+
+.virtual-key.delete {
+  font-size: 12px;
+}
+
+.virtual-key:hover {
+  border-color: var(--terminal-accent, #f26b38);
+}
+
+.virtual-key:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 3px var(--key-edge), 0 1px 0 var(--key-edge);
+}
+
+@media (max-height: 480px) {
+  .virtual-key {
+    height: 30px;
+  }
+
+  .compact-keyboard-deck {
+    gap: 6px;
+    padding: 5px 6px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .virtual-key {
+    transition: none;
+  }
+}
+
 .terminal-composer-toggle {
   display: flex;
   align-items: center;
@@ -2635,7 +2775,7 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) 38px auto;
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) 76px auto;
   }
 
   .brand-copy small,
@@ -2666,7 +2806,7 @@ textarea {
 
   .shell.mac-native-chrome .window-chrome {
     padding-left: 78px;
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 68px;
   }
 
   .shell {
@@ -2680,7 +2820,7 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(0, 1fr) 34px auto;
+    grid-template-columns: minmax(0, 1fr) 68px auto;
     min-height: 36px;
     background: color-mix(in srgb, var(--terminal-panel, #0c1118) 92%, var(--terminal-bg, #070b10));
   }
@@ -2711,7 +2851,7 @@ textarea {
   }
 
   .window-workspace-actions {
-    width: 34px;
+    width: 68px;
   }
 
   .window-settings-button {
@@ -2871,6 +3011,19 @@ textarea {
     width: 32px;
     min-height: 32px;
     padding: 0;
+  }
+
+  .virtual-keyboard {
+    padding: 4px 6px 6px;
+  }
+
+  .virtual-keyboard-header {
+    gap: 7px;
+  }
+
+  .virtual-keyboard-header > span {
+    font-size: 9px;
+    line-height: 1.4;
   }
 
   .settings-popover {

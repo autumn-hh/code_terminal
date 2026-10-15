@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FolderOpen,
   FolderPlus,
+  Keyboard,
   Maximize2,
   MessageSquare,
   Minus,
@@ -184,12 +185,21 @@ function getStableViewportHeight() {
   return Math.max(320, Math.floor(Math.min(...heights)));
 }
 
+function shouldShowVirtualKeyboard() {
+  if (isTauriRuntime()) return true;
+  const { userAgent, maxTouchPoints } = window.navigator;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)
+    || (/Macintosh/i.test(userAgent) && maxTouchPoints > 1);
+}
+
 export function App() {
   const [windowProjectId, setWindowProjectId] = useState<string | null>(() => getWindowProjectId());
   const [state, setState] = useState<WorkbenchState>(emptyState);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showVirtualKeyboard] = useState(shouldShowVirtualKeyboard);
+  const [virtualKeyboardOpen, setVirtualKeyboardOpen] = useState(false);
   const [mobileProjectsOpen, setMobileProjectsOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [mobileChromeHidden, setMobileChromeHidden] = useState(readStoredMobileChromeHidden);
@@ -768,6 +778,11 @@ export function App() {
     setSidebarCollapsed(true);
   }
 
+  function toggleVirtualKeyboard() {
+    setVirtualKeyboardOpen((open) => !open);
+    setSettingsOpen(false);
+  }
+
   function requestTerminalControl(action: TerminalPaneControlAction, closeSettings = false) {
     terminalControlRequestIdRef.current += 1;
     setTerminalControlRequest({
@@ -1041,6 +1056,18 @@ export function App() {
             onDoubleClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
+            {showVirtualKeyboard && <button
+              aria-controls="terminal-virtual-keyboard"
+              aria-expanded={virtualKeyboardOpen}
+              aria-label="虚拟键盘"
+              className={`window-settings-button ${virtualKeyboardOpen ? "active" : ""}`}
+              title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开终端功能键盘"}
+              type="button"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={toggleVirtualKeyboard}
+            >
+              <Keyboard size={16} />
+            </button>}
             <button
               aria-expanded={settingsOpen}
               aria-haspopup="dialog"
@@ -1420,6 +1447,18 @@ export function App() {
             </div>
 
             <div className="workspace-actions" ref={settingsMenuRef}>
+              {showVirtualKeyboard && <button
+                aria-controls="terminal-virtual-keyboard"
+                aria-expanded={virtualKeyboardOpen}
+                aria-label="虚拟键盘"
+                className={`settings-trigger ${virtualKeyboardOpen ? "active" : ""}`}
+                title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开终端功能键盘"}
+                type="button"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={toggleVirtualKeyboard}
+              >
+                <Keyboard size={16} />
+              </button>}
               <button
                 aria-expanded={settingsOpen}
                 aria-haspopup="dialog"
@@ -1663,6 +1702,8 @@ export function App() {
             activeProjectName={currentProject?.name || null}
             activeProjectPath={currentProject?.path || null}
             appearance={terminalAppearance}
+            virtualKeyboardOpen={showVirtualKeyboard && virtualKeyboardOpen}
+            onCloseVirtualKeyboard={() => setVirtualKeyboardOpen(false)}
             controlRequest={terminalControlRequest}
             sessionResumeRequest={sessionResumeRequest}
             onError={setError}
