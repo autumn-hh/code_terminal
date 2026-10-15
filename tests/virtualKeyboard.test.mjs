@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   encodeVirtualKey, getVirtualKeyLabel, initialVirtualKeyModifiers,
   virtualKeyboardRows, virtualNavigationKeys, virtualNumpadKeys,
-  compactVirtualKeys, modifyNativeKeyboardInput,
+  compactVirtualKeys, getVirtualKey,
 } from "../.test-dist/virtualKeyboard.js";
 
 const keys = [...virtualKeyboardRows.flat(), ...virtualNavigationKeys, ...virtualNumpadKeys];
@@ -78,26 +78,12 @@ test("numpad follows Num Lock and application keypad mode", () => {
   assert.equal(press("NumpadEnter"), "\r");
 });
 
-test("compact layout only exposes terminal controls", () => {
-  assert.equal(new Set(compactVirtualKeys.map((key) => key.code)).size, compactVirtualKeys.length);
-  for (const key of compactVirtualKeys) {
-    assert.doesNotMatch(key.code, /^(Key|Digit|Numpad|F[0-9])/);
-    assert.ok(keys.some((candidate) => candidate.code === key.code));
+test("compact keyboard sends each shortcut once with its own modifiers", () => {
+  const expected = ["\x04", "\t", "\x1b", "\x1b[A", "\r", "\x03", "\x1b\r", "\x1b[D", "\x1b[B", "\x1b[C"];
+  assert.equal(new Set(compactVirtualKeys.map((key) => key.id)).size, 10);
+  assert.deepEqual(compactVirtualKeys.map(({ code, modifiers }) =>
+    encodeVirtualKey(getVirtualKey(code), { ...initialVirtualKeyModifiers, ...modifiers })), expected);
+  for (const { code, modifiers } of compactVirtualKeys.filter((key) => key.code.startsWith("Arrow"))) {
+    assert.equal(encodeVirtualKey(getVirtualKey(code), { ...initialVirtualKeyModifiers, ...modifiers }, { applicationCursorKeysMode: true }), `\x1bO${{ ArrowUp: "A", ArrowDown: "B", ArrowLeft: "D", ArrowRight: "C" }[code]}`);
   }
-  for (const code of ["Escape", "Delete", "Backspace", "Enter", "Tab", "ControlLeft", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
-    assert.ok(compactVirtualKeys.some((key) => key.code === code));
-  }
-});
-
-test("latched modifiers encode native letters and preserve IME text and terminal sequences", () => {
-  const modify = (input, overrides = {}) => modifyNativeKeyboardInput(input, { ...initialVirtualKeyModifiers, ...overrides });
-  assert.deepEqual(modify("c", { ctrl: true }), { input: "\x03", consumed: true });
-  assert.deepEqual(modify("b", { alt: true }), { input: "\x1bb", consumed: true });
-  assert.deepEqual(modify("a", { shift: true }), { input: "A", consumed: true });
-  assert.deepEqual(modify("c", { ctrl: true, alt: true }), { input: "\x1b\x03", consumed: true });
-  for (const input of ["", "中文", "é", "hello", "\x1b[A", "\x1b[200~c\x1b[201~", "\r", "\x03"]) {
-    assert.deepEqual(modify(input, { ctrl: true }), { input, consumed: false });
-  }
-  assert.deepEqual(modify("c"), { input: "c", consumed: false });
-  assert.deepEqual(modify("!", { ctrl: true }), { input: "!", consumed: false });
 });

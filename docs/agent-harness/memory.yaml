@@ -93,9 +93,9 @@ validation:
 ux_memory:
   mobile:
     - "The phone Web UI should prioritize terminal space."
-    - "Virtual keyboard is a compact mechanical-style terminal control deck: three rows on narrow screens and two on wide screens. Text uses the system IME; no letter, symbol, full-keyboard or AI panels."
-    - "Keep Esc, Tab, Del, Backspace, Enter, arrows, Home/End, PgUp/PgDn, Ctrl/Alt/Shift and one-tap Ctrl+C. Latched modifiers apply once to the next control or single ASCII system-keyboard input and reset on tab switch or close; IME text and paste sequences remain intact."
-    - "Keyboard keycaps and lighting inherit page theme/custom colors. A lamp key cycles wave, breathing, steady and off, persists locally, and respects reduced motion. Opening or tapping the deck preserves the native input focus."
+    - "Virtual keyboard is a mechanical-style terminal control deck with exactly two rows of five keys on all screen sizes. Row 1: Ctrl+D, Tab, Esc, Up, Enter. Row 2: Ctrl+C, Alt+Enter, Left, Down, Right. Text uses the system IME."
+    - "Each chord sends immediately to the active terminal with its own modifiers; there are no latched modifier keys or native-input transformations."
+    - "Keyboard keycaps inherit page theme/custom colors and keep press feedback. No keyboard lighting, light effects or light settings. Opening or tapping the deck preserves native input focus."
     - "Top function buttons must be hideable or compact on mobile."
     - "Toolbar/actions must not squeeze the color/theme/font controls."
     - "Appearance controls should wrap, scroll, or collapse instead of compressing."

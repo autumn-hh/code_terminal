@@ -1708,7 +1708,6 @@ textarea {
 }
 
 .virtual-keyboard {
-  --key-light: var(--terminal-accent, #f26b38);
   --key-edge: color-mix(in srgb, var(--terminal-bg, #1b1b19) 84%, var(--terminal-fg, #f2f0ea));
   flex: 0 0 auto;
   min-width: 0;
@@ -1758,12 +1757,9 @@ textarea {
 
 .compact-keyboard-deck {
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
-  grid-template-areas:
-    'esc tab del backspace home end pageup up pagedown'
-    'ctrl alt shift interrupt light enter left down right';
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 7px 6px;
-  max-width: 900px;
+  max-width: 600px;
   margin: 0 auto;
   padding: 7px 7px 10px;
   background: color-mix(in srgb, var(--terminal-bg, #1b1b19) 86%, var(--terminal-panel, #242421));
@@ -1810,82 +1806,27 @@ textarea {
   white-space: nowrap;
 }
 
-.virtual-key::after {
-  content: '';
-  position: absolute;
-  right: 7px;
-  bottom: 2px;
-  left: 7px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--key-light);
-  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--key-light) 70%, transparent);
-  opacity: 0.75;
-  pointer-events: none;
-}
-
 .virtual-key.arrow {
   font-size: 20px;
 }
 
-.virtual-key.enter,
-.virtual-key.interrupt {
+.virtual-key.enter {
   background: linear-gradient(165deg,
     color-mix(in srgb, var(--terminal-accent, #f26b38) 30%, var(--terminal-panel, #242421)),
     color-mix(in srgb, var(--terminal-accent, #f26b38) 12%, var(--terminal-panel, #242421)));
 }
 
 .virtual-key.enter {
-  font-size: 22px;
+  font-size: 12px;
 }
 
 .virtual-key:hover {
   border-color: var(--terminal-accent, #f26b38);
 }
 
-.virtual-key.active {
-  color: var(--terminal-accent, #f26b38);
-  border-color: var(--terminal-accent, #f26b38);
-  background: color-mix(in srgb, var(--terminal-accent, #f26b38) 20%, var(--terminal-panel, #242421));
-}
-
 .virtual-key:active {
   transform: translateY(3px);
   box-shadow: inset 0 1px 3px var(--key-edge), 0 1px 0 var(--key-edge);
-}
-
-.virtual-keyboard[data-light-effect='wave'] .virtual-key::after {
-  animation: keyboard-light-wave 2.8s ease-in-out infinite;
-  animation-delay: var(--light-delay, 0s);
-}
-
-.virtual-keyboard[data-light-effect='breathe'] .virtual-key::after {
-  animation: keyboard-light-breathe 3.2s ease-in-out infinite;
-}
-
-.virtual-keyboard[data-light-effect='off'] .virtual-key::after {
-  opacity: 0;
-  box-shadow: none;
-}
-
-@keyframes keyboard-light-wave {
-  0%, 100% { opacity: 0.15; transform: scaleX(0.5); }
-  45% { opacity: 1; transform: scaleX(1); box-shadow: 0 0 9px 2px color-mix(in srgb, var(--key-light) 85%, transparent); }
-}
-
-@keyframes keyboard-light-breathe {
-  0%, 100% { opacity: 0.15; }
-  50% { opacity: 1; box-shadow: 0 0 8px 2px color-mix(in srgb, var(--key-light) 80%, transparent); }
-}
-
-@media (max-width: 720px) {
-  .compact-keyboard-deck {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-template-areas:
-      'esc tab del backspace home end'
-      'ctrl alt shift pageup up pagedown'
-      'interrupt light enter left down right';
-  }
 }
 
 @media (max-height: 480px) {
@@ -1900,11 +1841,6 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .virtual-keyboard[data-light-effect] .virtual-key::after {
-    animation: none;
-    transform: none;
-  }
-
   .virtual-key {
     transition: none;
   }

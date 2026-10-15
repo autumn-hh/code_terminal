@@ -88,41 +88,25 @@ export const virtualNumpadKeys = [
   { ...character('.', undefined, 'NumpadDecimal'), row: 6, column: 3 },
 ];
 
-export const compactVirtualKeys = [
-  { code: "Escape", area: "esc" },
-  { code: "Tab", area: "tab" },
-  { code: "Delete", area: "del" },
-  { code: "Backspace", area: "backspace" },
-  { code: "Home", area: "home" },
-  { code: "End", area: "end" },
-  { code: "ControlLeft", area: "ctrl" },
-  { code: "AltLeft", area: "alt" },
-  { code: "PageUp", area: "pageup" },
-  { code: "ArrowUp", area: "up" },
-  { code: "PageDown", area: "pagedown" },
-  { code: "ShiftLeft", area: "shift" },
-  { code: "ArrowLeft", area: "left" },
-  { code: "ArrowDown", area: "down" },
-  { code: "ArrowRight", area: "right" },
-  { code: "Enter", area: "enter", label: "↵" },
-];
-
-export const keyboardLightEffects = [
-  { id: "wave", label: "流光" },
-  { id: "breathe", label: "呼吸" },
-  { id: "steady", label: "常亮" },
-  { id: "off", label: "关闭" },
-] as const;
-export type KeyboardLightEffect = typeof keyboardLightEffects[number]["id"];
-
-/** Only consume latched modifiers for a single printable ASCII input, never IME text or paste sequences. */
-export function modifyNativeKeyboardInput(input: string, modifiers: VirtualKeyModifiers) {
-  if (!/^[\x20-\x7e]$/.test(input) || !(modifiers.ctrl || modifiers.alt || modifiers.shift)) {
-    return { input, consumed: false };
-  }
-  const encoded = encodeVirtualKey(character(input, input.toUpperCase()), modifiers);
-  return encoded ? { input: encoded, consumed: true } : { input, consumed: false };
+interface CompactVirtualKey {
+  id: string;
+  code: string;
+  label: string;
+  modifiers?: Partial<VirtualKeyModifiers>;
 }
+
+export const compactVirtualKeys: CompactVirtualKey[] = [
+  { id: "ctrl-d", code: "KeyD", label: "Ctrl+D", modifiers: { ctrl: true } },
+  { id: "tab", code: "Tab", label: "Tab" },
+  { id: "escape", code: "Escape", label: "Esc" },
+  { id: "up", code: "ArrowUp", label: "↑" },
+  { id: "enter", code: "Enter", label: "Enter" },
+  { id: "ctrl-c", code: "KeyC", label: "Ctrl+C", modifiers: { ctrl: true } },
+  { id: "alt-enter", code: "Enter", label: "Alt+Enter", modifiers: { alt: true } },
+  { id: "left", code: "ArrowLeft", label: "←" },
+  { id: "down", code: "ArrowDown", label: "↓" },
+  { id: "right", code: "ArrowRight", label: "→" },
+];
 
 const allVirtualKeys: VirtualKey[] = [...virtualKeyboardRows.flat(), ...virtualNavigationKeys, ...virtualNumpadKeys];
 export function getVirtualKey(code: string): VirtualKey {
