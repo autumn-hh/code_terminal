@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FolderOpen,
   FolderPlus,
+  Keyboard,
   Maximize2,
   MessageSquare,
   Minus,
@@ -190,6 +191,7 @@ export function App() {
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [virtualKeyboardOpen, setVirtualKeyboardOpen] = useState(false);
   const [mobileProjectsOpen, setMobileProjectsOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [mobileChromeHidden, setMobileChromeHidden] = useState(readStoredMobileChromeHidden);
@@ -768,6 +770,12 @@ export function App() {
     setSidebarCollapsed(true);
   }
 
+  function toggleVirtualKeyboard() {
+    setVirtualKeyboardOpen((open) => !open);
+    setSettingsOpen(false);
+    if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
+  }
+
   function requestTerminalControl(action: TerminalPaneControlAction, closeSettings = false) {
     terminalControlRequestIdRef.current += 1;
     setTerminalControlRequest({
@@ -1041,6 +1049,18 @@ export function App() {
             onDoubleClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
+            <button
+              aria-controls="terminal-virtual-keyboard"
+              aria-expanded={virtualKeyboardOpen}
+              aria-label="虚拟键盘"
+              className={`window-settings-button ${virtualKeyboardOpen ? "active" : ""}`}
+              title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开电脑全键盘"}
+              type="button"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={toggleVirtualKeyboard}
+            >
+              <Keyboard size={16} />
+            </button>
             <button
               aria-expanded={settingsOpen}
               aria-haspopup="dialog"
@@ -1421,6 +1441,18 @@ export function App() {
 
             <div className="workspace-actions" ref={settingsMenuRef}>
               <button
+                aria-controls="terminal-virtual-keyboard"
+                aria-expanded={virtualKeyboardOpen}
+                aria-label="虚拟键盘"
+                className={`settings-trigger ${virtualKeyboardOpen ? "active" : ""}`}
+                title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开电脑全键盘"}
+                type="button"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={toggleVirtualKeyboard}
+              >
+                <Keyboard size={16} />
+              </button>
+              <button
                 aria-expanded={settingsOpen}
                 aria-haspopup="dialog"
                 aria-label="设置"
@@ -1663,6 +1695,8 @@ export function App() {
             activeProjectName={currentProject?.name || null}
             activeProjectPath={currentProject?.path || null}
             appearance={terminalAppearance}
+            virtualKeyboardOpen={virtualKeyboardOpen}
+            onCloseVirtualKeyboard={() => setVirtualKeyboardOpen(false)}
             controlRequest={terminalControlRequest}
             sessionResumeRequest={sessionResumeRequest}
             onError={setError}

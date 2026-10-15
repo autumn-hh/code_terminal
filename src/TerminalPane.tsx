@@ -22,6 +22,8 @@ import {
 import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from "./clipboardImages";
 import { createClientId } from "./ids";
 import { getTabIdForProjectFocus } from "./terminalTabFocus";
+import { VirtualKeyboard } from "./TerminalVirtualKeyboard";
+import type { VirtualKey, VirtualKeyModifiers } from "./virtualKeyboard";
 import type { TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
 
 interface TerminalPaneProps {
@@ -29,6 +31,8 @@ interface TerminalPaneProps {
   activeProjectName?: string | null;
   activeProjectPath?: string | null;
   appearance: TerminalAppearanceSettings;
+  virtualKeyboardOpen: boolean;
+  onCloseVirtualKeyboard: () => void;
   commandRequest?: TerminalCommandRequest | null;
   sessionResumeRequest?: CodexSessionResumeRequest | null;
   controlRequest?: TerminalPaneControlRequest | null;
@@ -413,6 +417,8 @@ export function TerminalPane({
   activeProjectName,
   activeProjectPath,
   appearance,
+  virtualKeyboardOpen,
+  onCloseVirtualKeyboard,
   commandRequest,
   sessionResumeRequest,
   controlRequest,
@@ -523,6 +529,10 @@ export function TerminalPane({
 
     activeTerminal.sendRawInput("\r");
     return true;
+  }
+
+  function sendVirtualKeyToTerminal(key: VirtualKey, modifiers: VirtualKeyModifiers) {
+    terminalHandlesRef.current[terminalTabs.activeTabId]?.sendVirtualKey(key, modifiers);
   }
 
   function sendComposerNavigationKeyToTerminal(key: string) {
@@ -1055,7 +1065,7 @@ export function TerminalPane({
 
   useEffect(() => {
     scheduleVisibleTerminalFit(true);
-  }, [layoutPreferences]);
+  }, [layoutPreferences, virtualKeyboardOpen]);
 
   useEffect(() => {
     setColumnWeights(createEqualWeights(activeLayout.columns));
@@ -1379,6 +1389,13 @@ export function TerminalPane({
             <SendHorizontal size={16} />
           </button>
         </form>
+        {virtualKeyboardOpen && (
+          <VirtualKeyboard
+            sessionId={terminalTabs.activeTabId}
+            onKey={sendVirtualKeyToTerminal}
+            onClose={onCloseVirtualKeyboard}
+          />
+        )}
       </div>
     </section>
   );

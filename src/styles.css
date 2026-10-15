@@ -81,7 +81,7 @@ textarea {
   position: relative;
   grid-column: 1 / -1;
   grid-row: 1;
-  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) 38px auto;
+  grid-template-columns: minmax(190px, 248px) minmax(0, 1fr) 76px auto;
   align-items: center;
   z-index: 120;
   min-width: 0;
@@ -209,9 +209,10 @@ textarea {
 }
 
 .window-workspace-actions {
-  display: grid;
-  place-items: center;
-  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: 76px;
   height: 100%;
 }
 
@@ -257,7 +258,7 @@ textarea {
 }
 
 .shell.mac-native-chrome .window-chrome {
-  grid-template-columns: minmax(0, 1fr) 38px auto;
+  grid-template-columns: minmax(0, 1fr) 76px auto;
 }
 
 .shell.custom-window-chrome .sidebar,
@@ -1706,6 +1707,138 @@ textarea {
   min-width: 0;
 }
 
+.virtual-keyboard {
+  display: flex;
+  flex-direction: column;
+  max-height: min(330px, 45vh);
+  min-width: 0;
+  padding: 6px 12px 10px;
+  color: var(--terminal-fg, #e6edf2);
+  background: var(--terminal-panel, #242421);
+  border-top: 1px solid var(--terminal-border, #383834);
+}
+
+.virtual-keyboard-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  padding-bottom: 6px;
+  font-size: 11px;
+}
+
+.virtual-keyboard-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.virtual-keyboard-header > span {
+  color: var(--terminal-muted, #aaa79f);
+  font-size: 10px;
+}
+
+.virtual-keyboard-header > button {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.virtual-keyboard-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
+}
+
+.virtual-keyboard-layout {
+  --key-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(600px, 15fr) minmax(126px, 3fr) minmax(168px, 4fr);
+  gap: 12px;
+  width: 100%;
+  min-width: 930px;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 2px 2px 6px;
+  user-select: none;
+}
+
+.virtual-keyboard-main {
+  display: grid;
+  grid-template-rows: repeat(6, var(--key-height));
+  gap: 5px;
+  min-width: 0;
+}
+
+.virtual-keyboard-row {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.virtual-keyboard-row.function-row {
+  gap: 10px;
+}
+
+.virtual-keyboard-navigation,
+.virtual-keyboard-numpad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(6, var(--key-height));
+  gap: 5px;
+}
+
+.virtual-keyboard-numpad {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.virtual-key {
+  min-width: 0;
+  min-height: var(--key-height);
+  padding: 0 3px;
+  color: var(--terminal-fg, #e6edf2);
+  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 6%, var(--terminal-bg, #1b1b19));
+  border: 1px solid color-mix(in srgb, var(--terminal-fg, #e6edf2) 16%, var(--terminal-border, #383834));
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.virtual-key.arrow {
+  font-size: 17px;
+}
+
+.virtual-key:hover:enabled,
+.virtual-keyboard-header > button:hover {
+  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 14%, var(--terminal-bg, #1b1b19));
+}
+
+.virtual-key.active,
+.virtual-key:active:enabled {
+  color: var(--terminal-accent, #f26b38);
+  background: color-mix(in srgb, var(--terminal-accent, #f26b38) 18%, var(--terminal-bg, #1b1b19));
+  border-color: var(--terminal-accent, #f26b38);
+}
+
+.virtual-key:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .terminal-composer-toggle {
   display: flex;
   align-items: center;
@@ -2635,7 +2768,7 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) 38px auto;
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) 76px auto;
   }
 
   .brand-copy small,
@@ -2666,7 +2799,7 @@ textarea {
 
   .shell.mac-native-chrome .window-chrome {
     padding-left: 78px;
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 68px;
   }
 
   .shell {
@@ -2680,7 +2813,7 @@ textarea {
   }
 
   .window-chrome {
-    grid-template-columns: minmax(0, 1fr) 34px auto;
+    grid-template-columns: minmax(0, 1fr) 68px auto;
     min-height: 36px;
     background: color-mix(in srgb, var(--terminal-panel, #0c1118) 92%, var(--terminal-bg, #070b10));
   }
@@ -2711,7 +2844,7 @@ textarea {
   }
 
   .window-workspace-actions {
-    width: 34px;
+    width: 68px;
   }
 
   .window-settings-button {
@@ -2871,6 +3004,23 @@ textarea {
     width: 32px;
     min-height: 32px;
     padding: 0;
+  }
+
+  .virtual-keyboard {
+    padding: 4px 6px 6px;
+  }
+
+  .virtual-keyboard-header {
+    gap: 7px;
+  }
+
+  .virtual-keyboard-header > span {
+    font-size: 9px;
+    line-height: 1.4;
+  }
+
+  .virtual-keyboard-layout {
+    --key-height: 32px;
   }
 
   .settings-popover {
