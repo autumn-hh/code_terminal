@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   encodeVirtualKey, getVirtualKeyLabel, initialVirtualKeyModifiers,
   virtualKeyboardRows, virtualNavigationKeys, virtualNumpadKeys,
+  mobileLetterRows, mobileNumberKeys, mobileCommonSymbolKeys, mobileSymbolPages, mobilePunctuationKeys,
+  aiVirtualKeyShortcuts, openSpecQuickInputs, commonQuickInputGroups,
 } from "../.test-dist/virtualKeyboard.js";
 
 const keys = [...virtualKeyboardRows.flat(), ...virtualNavigationKeys, ...virtualNumpadKeys];
@@ -75,4 +77,38 @@ test("numpad follows Num Lock and application keypad mode", () => {
   assert.equal(press("Numpad7", {}, { applicationKeypadMode: true }), "\x1bOw");
   assert.equal(press("NumpadEnter", {}, { applicationKeypadMode: true }), "\x1bOM");
   assert.equal(press("NumpadEnter"), "\r");
+});
+
+test("phone letter layout contains the alphabet without desktop function keys", () => {
+  assert.deepEqual(mobileLetterRows.map((row) => row.map((key) => key.value).join("")), ["qwertyuiop", "asdfghjkl", "zxcvbnm"]);
+  assert.equal(new Set(mobileLetterRows.flat().map((key) => key.value)).size, 26);
+  assert.equal(mobileNumberKeys.map((key) => encodeVirtualKey(key, initialVirtualKeyModifiers)).join(""), "1234567890");
+  assert.equal(mobileNumberKeys.map((key) => encodeVirtualKey(key, { ...initialVirtualKeyModifiers, shift: true })).join(""), "!@#$%^&*()");
+  for (const value of "/#$-_@:=&" + String.fromCharCode(92)) {
+    assert.ok(mobileCommonSymbolKeys.some((key) => key.value === value), `Missing common symbol ${value}`);
+  }
+  for (const key of [...mobileCommonSymbolKeys, ...mobileSymbolPages.flat(2), ...mobilePunctuationKeys]) {
+    assert.equal(encodeVirtualKey(key, initialVirtualKeyModifiers), key.value);
+  }
+  assert.equal(mobileSymbolPages[0][0].map((key) => key.value).join(""), "1234567890");
+});
+
+test("AI shortcuts use the existing terminal encoder", () => {
+  const shortcuts = Object.fromEntries(aiVirtualKeyShortcuts.map((shortcut) => [
+    shortcut.id, encodeVirtualKey(shortcut.key, { ...initialVirtualKeyModifiers, ...shortcut.modifiers }),
+  ]));
+  assert.equal(shortcuts.interrupt, "\x03");
+  assert.equal(shortcuts.mode, "\x1b[Z");
+  assert.equal(shortcuts.newline, "\x1b\r");
+  assert.equal(shortcuts.confirm, "\r");
+  assert.equal(shortcuts["delete-word"], "\x17");
+});
+
+test("quick text preserves OpenSpec prefixes and contains no submission or control characters", () => {
+  assert.equal(openSpecQuickInputs.find((input) => input.id === "propose").text, "$openspec-propose ");
+  assert.equal(openSpecQuickInputs.find((input) => input.id === "apply").text, "$openspec-apply-change ");
+  for (const input of [...openSpecQuickInputs, ...commonQuickInputGroups.flatMap((group) => group.inputs)]) {
+    assert.ok(input.text.length > 0);
+    assert.doesNotMatch(input.text, /[\x00-\x1f\x7f]/);
+  }
 });

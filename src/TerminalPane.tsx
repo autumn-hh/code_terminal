@@ -535,6 +535,10 @@ export function TerminalPane({
     terminalHandlesRef.current[terminalTabs.activeTabId]?.sendVirtualKey(key, modifiers);
   }
 
+  function insertVirtualKeyboardText(text: string) {
+    terminalHandlesRef.current[terminalTabs.activeTabId]?.pasteInput(text);
+  }
+
   function sendComposerNavigationKeyToTerminal(key: string) {
     if (composerInputValue.trim()) return false;
     if (!(key in composerTerminalNavigationInput)) return false;
@@ -1393,6 +1397,7 @@ export function TerminalPane({
           <VirtualKeyboard
             sessionId={terminalTabs.activeTabId}
             onKey={sendVirtualKeyToTerminal}
+            onText={insertVirtualKeyboardText}
             onClose={onCloseVirtualKeyboard}
           />
         )}

@@ -216,6 +216,7 @@ export interface TerminalSessionHandle {
   interrupt: () => void;
   sendRawInput: (input: string) => void;
   sendVirtualKey: (key: VirtualKey, modifiers: VirtualKeyModifiers) => void;
+  pasteInput: (input: string) => void;
   sendComposerInput: (input: string) => void;
 }
 
@@ -2734,6 +2735,15 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         if (!input) return;
         if (terminal && sessionIdRef.current) {
           terminal.input(input, true);
+        } else {
+          sendRawOrQueueInput(input);
+        }
+      },
+      pasteInput(input) {
+        if (!input) return;
+        const terminal = terminalRef.current;
+        if (terminal && sessionIdRef.current) {
+          terminal.paste(input);
         } else {
           sendRawOrQueueInput(input);
         }
