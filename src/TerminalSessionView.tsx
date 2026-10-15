@@ -10,7 +10,7 @@ import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from
 import { createClientId } from "./ids";
 import { invoke, isTauriRuntime, listen } from "./tauriRuntime";
 import { getXtermTheme } from "./terminalThemes";
-import { encodeVirtualKey } from "./virtualKeyboard";
+import { encodeVirtualKey, modifyNativeKeyboardInput } from "./virtualKeyboard";
 import type { VirtualKey, VirtualKeyModifiers } from "./virtualKeyboard";
 import type {
   TerminalAppearanceSettings,
@@ -216,7 +216,6 @@ export interface TerminalSessionHandle {
   interrupt: () => void;
   sendRawInput: (input: string) => void;
   sendVirtualKey: (key: VirtualKey, modifiers: VirtualKeyModifiers) => void;
-  pasteInput: (input: string) => void;
   sendComposerInput: (input: string) => void;
 }
 
@@ -229,6 +228,8 @@ interface TerminalSessionViewProps {
   commandRequest?: TerminalCommandRequest | null;
   onError: (message: string) => void;
   onRuntimeChange: (tabId: string, runtime: TerminalSessionRuntime) => void;
+  virtualKeyModifiers: VirtualKeyModifiers;
+  onVirtualModifiersConsumed: () => void;
 }
 
 export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSessionViewProps>(
@@ -242,11 +243,15 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       commandRequest,
       onError,
       onRuntimeChange,
+      virtualKeyModifiers,
+      onVirtualModifiersConsumed,
     },
     ref,
   ) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const terminalRef = useRef<XTerm | null>(null);
+    const nativeModifiersRef = useRef({ modifiers: virtualKeyModifiers, onConsumed: onVirtualModifiersConsumed });
+    nativeModifiersRef.current = { modifiers: virtualKeyModifiers, onConsumed: onVirtualModifiersConsumed };
     const fitRef = useRef<FitAddon | null>(null);
     const sessionIdRef = useRef<string | null>(null);
     const activeProjectIdRef = useRef(activeProjectId);
@@ -2739,15 +2744,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           sendRawOrQueueInput(input);
         }
       },
-      pasteInput(input) {
-        if (!input) return;
-        const terminal = terminalRef.current;
-        if (terminal && sessionIdRef.current) {
-          terminal.paste(input);
-        } else {
-          sendRawOrQueueInput(input);
-        }
-      },
       sendComposerInput(input: string) {
         appendConversationMessage("user", input);
         sendComposerInputToTerminal(input);
@@ -2887,6 +2883,15 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const dataDisposable = terminal.onData((data) => {
         const sessionId = sessionIdRef.current;
         if (!sessionId) return;
+        if (!terminalImeCompositionActiveRef.current) {
+          const current = nativeModifiersRef.current;
+          const result = modifyNativeKeyboardInput(data, current.modifiers);
+          data = result.input;
+          if (result.consumed) {
+            nativeModifiersRef.current = { ...current, modifiers: { ...current.modifiers, ctrl: false, alt: false, shift: false } };
+            current.onConsumed();
+          }
+        }
         writeTuiDebugLog("xterm-data", {
           length: data.length,
           hasReturn: /[\r\n]/.test(data),

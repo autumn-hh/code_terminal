@@ -93,9 +93,9 @@ validation:
 ux_memory:
   mobile:
     - "The phone Web UI should prioritize terminal space."
-    - "Opening the virtual keyboard defaults to function keys: top F row, editing/modifier keys on the left, navigation and inverted-T arrows on the right. Top tabs switch to typing and AI shortcuts."
-    - "Phone typing uses QWERTY with directly accessible number and common-symbol rows, including slash, hash, dollar, minus and backslash; more symbols remain behind 123. Desktop typing keeps the full 104-key layout."
-    - "AI quick text inserts into the active terminal without submitting; Enter remains an explicit user action."
+    - "Virtual keyboard is a compact mechanical-style terminal control deck: three rows on narrow screens and two on wide screens. Text uses the system IME; no letter, symbol, full-keyboard or AI panels."
+    - "Keep Esc, Tab, Del, Backspace, Enter, arrows, Home/End, PgUp/PgDn, Ctrl/Alt/Shift and one-tap Ctrl+C. Latched modifiers apply once to the next control or single ASCII system-keyboard input and reset on tab switch or close; IME text and paste sequences remain intact."
+    - "Keyboard keycaps and lighting inherit page theme/custom colors. A lamp key cycles wave, breathing, steady and off, persists locally, and respects reduced motion. Opening or tapping the deck preserves the native input focus."
     - "Top function buttons must be hideable or compact on mobile."
     - "Toolbar/actions must not squeeze the color/theme/font controls."
     - "Appearance controls should wrap, scroll, or collapse instead of compressing."

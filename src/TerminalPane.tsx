@@ -23,6 +23,7 @@ import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from
 import { createClientId } from "./ids";
 import { getTabIdForProjectFocus } from "./terminalTabFocus";
 import { VirtualKeyboard } from "./TerminalVirtualKeyboard";
+import { initialVirtualKeyModifiers, modifyNativeKeyboardInput } from "./virtualKeyboard";
 import type { VirtualKey, VirtualKeyModifiers } from "./virtualKeyboard";
 import type { TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
 
@@ -461,6 +462,8 @@ export function TerminalPane({
     request: TerminalCommandRequest;
   } | null>(null);
   const [composerInputValue, setComposerInputValue] = useState("");
+  const [virtualKeyModifiers, setVirtualKeyModifiers] = useState({ ...initialVirtualKeyModifiers });
+  const virtualKeyModifiersRef = useRef(virtualKeyModifiers);
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
   const renderColumnWeights = useMemo(
     () => normalizeGridWeights(columnWeights, activeLayout.columns),
@@ -495,6 +498,15 @@ export function TerminalPane({
     return terminalTabs.tabs.slice(pageStart, pageStart + activeLayout.visibleCount);
   }, [activeLayout.displayMode, activeLayout.visibleCount, terminalTabs.activeTabId, terminalTabs.tabs]);
   const visibleTabIds = useMemo(() => new Set(visibleTabs.map((tab) => tab.id)), [visibleTabs]);
+
+  function updateVirtualKeyModifiers(next = { ...initialVirtualKeyModifiers }) {
+    virtualKeyModifiersRef.current = next;
+    setVirtualKeyModifiers(next);
+  }
+
+  useEffect(() => {
+    updateVirtualKeyModifiers();
+  }, [terminalTabs.activeTabId, virtualKeyboardOpen]);
 
   function updateLayoutPreferences(nextPreferences: TerminalLayoutPreferences) {
     setLayoutPreferences(nextPreferences);
@@ -532,12 +544,41 @@ export function TerminalPane({
   }
 
   function sendVirtualKeyToTerminal(key: VirtualKey, modifiers: VirtualKeyModifiers) {
-    terminalHandlesRef.current[terminalTabs.activeTabId]?.sendVirtualKey(key, modifiers);
+    const isComposerEnter = key.code === "Enter" && document.activeElement === composerInputRef.current && !modifiers.alt && !modifiers.ctrl;
+    if (isComposerEnter && modifiers.shift) {
+      insertComposerText("\n");
+    } else if (isComposerEnter && composerInputValue.trim()) {
+      submitComposerInput();
+    } else {
+      terminalHandlesRef.current[terminalTabs.activeTabId]?.sendVirtualKey(key, modifiers);
+    }
+    updateVirtualKeyModifiers();
   }
 
-  function insertVirtualKeyboardText(text: string) {
-    terminalHandlesRef.current[terminalTabs.activeTabId]?.pasteInput(text);
+  function handleModifiedComposerInput(input: string) {
+    const modifiers = virtualKeyModifiersRef.current;
+    const result = modifyNativeKeyboardInput(input, modifiers);
+    if (!result.consumed) return false;
+    if (modifiers.ctrl || modifiers.alt) {
+      terminalHandlesRef.current[terminalTabs.activeTabId]?.sendRawInput(result.input);
+    } else {
+      insertComposerText(result.input);
+    }
+    updateVirtualKeyModifiers();
+    return true;
   }
+
+  useEffect(() => {
+    const input = composerInputRef.current;
+    if (!input) return;
+    const handleNativeInput = (event: InputEvent) => {
+      if (event.cancelable && event.inputType === "insertText" && !event.isComposing && event.data && handleModifiedComposerInput(event.data)) {
+        event.preventDefault();
+      }
+    };
+    input.addEventListener("beforeinput", handleNativeInput);
+    return () => input.removeEventListener("beforeinput", handleNativeInput);
+  }, [composerInputValue, terminalTabs.activeTabId]);
 
   function sendComposerNavigationKeyToTerminal(key: string) {
     if (composerInputValue.trim()) return false;
@@ -553,6 +594,10 @@ export function TerminalPane({
   function handleComposerInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.defaultPrevented) return;
     if (event.nativeEvent.isComposing) return;
+    if (!event.ctrlKey && !event.altKey && !event.metaKey && handleModifiedComposerInput(event.key)) {
+      event.preventDefault();
+      return;
+    }
 
     if (event.key === "Escape") {
       event.preventDefault();
@@ -1296,6 +1341,8 @@ export function TerminalPane({
                 commandRequest={routedCommand?.tabId === tab.id ? routedCommand.request : null}
                 onError={onError}
                 onRuntimeChange={updateRuntime}
+                virtualKeyModifiers={virtualKeyboardOpen && tab.id === terminalTabs.activeTabId ? virtualKeyModifiers : initialVirtualKeyModifiers}
+                onVirtualModifiersConsumed={() => updateVirtualKeyModifiers()}
               />
             </div>
           );
@@ -1395,9 +1442,9 @@ export function TerminalPane({
         </form>
         {virtualKeyboardOpen && (
           <VirtualKeyboard
-            sessionId={terminalTabs.activeTabId}
+            modifiers={virtualKeyModifiers}
+            onModifiersChange={updateVirtualKeyModifiers}
             onKey={sendVirtualKeyToTerminal}
-            onText={insertVirtualKeyboardText}
             onClose={onCloseVirtualKeyboard}
           />
         )}

@@ -773,7 +773,6 @@ export function App() {
   function toggleVirtualKeyboard() {
     setVirtualKeyboardOpen((open) => !open);
     setSettingsOpen(false);
-    if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
   }
 
   function requestTerminalControl(action: TerminalPaneControlAction, closeSettings = false) {
@@ -1054,7 +1053,7 @@ export function App() {
               aria-expanded={virtualKeyboardOpen}
               aria-label="虚拟键盘"
               className={`window-settings-button ${virtualKeyboardOpen ? "active" : ""}`}
-              title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开电脑全键盘"}
+              title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开终端功能键盘"}
               type="button"
               onPointerDown={(event) => event.preventDefault()}
               onClick={toggleVirtualKeyboard}
@@ -1445,7 +1444,7 @@ export function App() {
                 aria-expanded={virtualKeyboardOpen}
                 aria-label="虚拟键盘"
                 className={`settings-trigger ${virtualKeyboardOpen ? "active" : ""}`}
-                title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开电脑全键盘"}
+                title={virtualKeyboardOpen ? "收起虚拟键盘" : "展开终端功能键盘"}
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={toggleVirtualKeyboard}

@@ -1708,447 +1708,205 @@ textarea {
 }
 
 .virtual-keyboard {
-  display: flex;
-  flex-direction: column;
-  max-height: min(390px, 48vh);
+  --key-light: var(--terminal-accent, #f26b38);
+  --key-edge: color-mix(in srgb, var(--terminal-bg, #1b1b19) 84%, var(--terminal-fg, #f2f0ea));
+  flex: 0 0 auto;
   min-width: 0;
-  padding: 6px 12px 10px;
-  color: var(--terminal-fg, #e6edf2);
+  padding: 4px 10px max(9px, env(safe-area-inset-bottom, 0px));
+  color: var(--terminal-fg, #f2f0ea);
   background: var(--terminal-panel, #242421);
   border-top: 1px solid var(--terminal-border, #383834);
 }
 
 .virtual-keyboard-header {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
-  min-height: 28px;
-  padding-bottom: 6px;
-  font-size: 11px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 25px;
+  padding-bottom: 4px;
+  font-size: 10px;
 }
 
 .virtual-keyboard-header strong {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: 7px;
-  white-space: nowrap;
+  gap: 5px;
 }
 
 .virtual-keyboard-header > span {
+  overflow: hidden;
   color: var(--terminal-muted, #aaa79f);
-  font-size: 10px;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .virtual-keyboard-header > button {
   display: grid;
-  flex: 0 0 28px;
+  flex: 0 0 24px;
   place-items: center;
-  height: 26px;
+  height: 22px;
   margin-left: auto;
   padding: 0;
   color: inherit;
   background: transparent;
-  border-radius: 5px;
+  border-radius: 4px;
   cursor: pointer;
 }
 
-.virtual-keyboard-scroll {
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  touch-action: pan-x pan-y;
-}
-
-.virtual-keyboard-layout {
-  --key-height: 34px;
+.compact-keyboard-deck {
   display: grid;
-  grid-template-columns: minmax(600px, 15fr) minmax(126px, 3fr) minmax(168px, 4fr);
-  gap: 12px;
-  width: 100%;
-  min-width: 930px;
-  max-width: 1320px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-areas:
+    'esc tab del backspace home end pageup up pagedown'
+    'ctrl alt shift interrupt light enter left down right';
+  gap: 7px 6px;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 2px 2px 6px;
+  padding: 7px 7px 10px;
+  background: color-mix(in srgb, var(--terminal-bg, #1b1b19) 86%, var(--terminal-panel, #242421));
+  border: 1px solid var(--terminal-border, #383834);
+  border-radius: 9px;
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--terminal-bg, #1b1b19) 70%, transparent);
   user-select: none;
-}
-
-.virtual-keyboard-main {
-  display: grid;
-  grid-template-rows: repeat(6, var(--key-height));
-  gap: 5px;
-  min-width: 0;
-}
-
-.virtual-keyboard-row {
-  display: flex;
-  gap: 5px;
-  min-width: 0;
-}
-
-.virtual-keyboard-row.function-row {
-  gap: 10px;
-}
-
-.virtual-keyboard-navigation,
-.virtual-keyboard-numpad {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(6, var(--key-height));
-  gap: 5px;
-}
-
-.virtual-keyboard-numpad {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .virtual-key {
+  position: relative;
+  isolation: isolate;
+  display: grid;
   min-width: 0;
-  min-height: var(--key-height);
+  height: 34px;
+  place-items: center;
   padding: 0 3px;
-  color: var(--terminal-fg, #e6edf2);
-  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 6%, var(--terminal-bg, #1b1b19));
-  border: 1px solid color-mix(in srgb, var(--terminal-fg, #e6edf2) 16%, var(--terminal-border, #383834));
-  border-bottom-width: 3px;
+  color: var(--terminal-fg, #f2f0ea);
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--terminal-panel, #242421) 88%, var(--terminal-fg, #f2f0ea)),
+    var(--terminal-panel, #242421) 65%);
+  border: 1px solid color-mix(in srgb, var(--terminal-border, #383834) 70%, var(--terminal-fg, #f2f0ea));
+  border-bottom-color: var(--key-edge);
   border-radius: 5px;
-  font-family: "Cascadia Mono", Consolas, monospace;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--terminal-fg, #f2f0ea) 15%, transparent),
+    inset 2px 0 3px color-mix(in srgb, var(--terminal-fg, #f2f0ea) 4%, transparent),
+    0 4px 0 var(--key-edge),
+    0 5px 2px color-mix(in srgb, var(--terminal-bg, #1b1b19) 75%, transparent);
+  font-family: var(--terminal-font-family, monospace);
   font-size: 11px;
   cursor: pointer;
+  touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms ease, background 120ms ease;
+}
+
+.keycap-legend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.virtual-key::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 2px;
+  left: 7px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--key-light);
+  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--key-light) 70%, transparent);
+  opacity: 0.75;
+  pointer-events: none;
 }
 
 .virtual-key.arrow {
-  font-size: 17px;
+  font-size: 20px;
 }
 
-.virtual-key:hover:enabled,
-.virtual-keyboard-header > button:hover {
-  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 14%, var(--terminal-bg, #1b1b19));
-}
-
-.virtual-key.active,
-.virtual-key:active:enabled {
-  color: var(--terminal-accent, #f26b38);
-  background: color-mix(in srgb, var(--terminal-accent, #f26b38) 18%, var(--terminal-bg, #1b1b19));
-  border-color: var(--terminal-accent, #f26b38);
-}
-
-.virtual-key:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.virtual-keyboard-tabs,
-.virtual-ai-categories {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 5px;
-  min-width: 0;
-  padding: 2px 0 8px;
-}
-
-.virtual-keyboard-tabs > button,
-.virtual-ai-categories > button {
-  flex: 1;
-  min-width: 0;
-  min-height: 32px;
-  padding: 5px 8px;
-  color: var(--terminal-muted, #aaa79f);
-  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 5%, transparent);
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.virtual-keyboard-tabs > button[aria-selected="true"],
-.virtual-ai-categories > button.active {
-  color: var(--terminal-accent, #f26b38);
-  background: color-mix(in srgb, var(--terminal-accent, #f26b38) 12%, transparent);
-  border-color: color-mix(in srgb, var(--terminal-accent, #f26b38) 40%, transparent);
-}
-
-.virtual-keyboard-content {
-  --key-height: 34px;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
-.virtual-function-panel {
-  display: grid;
-  gap: 12px;
-  max-width: 660px;
-  margin: 0 auto;
-  padding: 2px;
-  user-select: none;
-}
-
-.virtual-function-keys {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 5px;
-}
-
-.virtual-function-keys > .virtual-key {
-  min-height: 28px;
-}
-
-.virtual-function-main {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.virtual-editing-keys,
-.virtual-navigation-block,
-.virtual-direction-pad {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: var(--key-height);
-  gap: 5px;
-}
-
-.virtual-navigation-cluster {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.virtual-function-panel .virtual-key {
-  touch-action: manipulation;
-}
-
-.virtual-ai-panel {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 2px;
-}
-
-.virtual-keyboard-hint,
-.virtual-keyboard-notice {
-  margin: 0 0 8px;
-  color: var(--terminal-muted, #aaa79f);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.virtual-keyboard-notice {
-  margin: 7px 0 0;
-  color: var(--terminal-accent, #f26b38);
-}
-
-.virtual-keyboard-notice:empty {
-  display: none;
-}
-
-.virtual-shortcut-grid,
-.virtual-quick-input-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.virtual-shortcut-grid > button,
-.virtual-quick-input-grid > button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 4px;
-  min-width: 0;
-  min-height: 49px;
-  padding: 8px;
-  color: var(--terminal-fg, #e6edf2);
-  background: color-mix(in srgb, var(--terminal-fg, #e6edf2) 5%, var(--terminal-bg, #1b1b19));
-  border: 1px solid var(--terminal-border, #383834);
-  border-radius: 6px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.virtual-shortcut-grid > button:hover,
-.virtual-quick-input-grid > button:hover {
-  border-color: var(--terminal-accent, #f26b38);
-}
-
-.virtual-shortcut-grid kbd,
-.virtual-quick-input-grid strong {
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.virtual-shortcut-grid span,
-.virtual-quick-input-grid code {
-  max-width: 100%;
-  color: var(--terminal-muted, #aaa79f);
-  font-size: 10px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-
-.virtual-quick-input-group + .virtual-quick-input-group {
-  margin-top: 10px;
-}
-
-.virtual-quick-input-group h3 {
-  margin: 0 0 6px;
-  color: var(--terminal-muted, #aaa79f);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.virtual-keyboard.mobile {
-  max-height: min(370px, 49vh);
-  padding: 4px 6px max(6px, env(safe-area-inset-bottom, 0px));
-}
-
-.virtual-keyboard.mobile .virtual-keyboard-header {
-  gap: 7px;
-}
-
-.virtual-keyboard.mobile .virtual-keyboard-header > span {
-  font-size: 9px;
-}
-
-.virtual-keyboard.mobile .virtual-keyboard-content {
-  --key-height: 32px;
-}
-
-.mobile-typing-keyboard {
-  display: grid;
-  gap: 5px;
-  padding: 2px 0;
-}
-
-.mobile-keyboard-row {
-  display: flex;
-  gap: 4px;
-  min-width: 0;
-}
-
-.mobile-keyboard-row.indented {
-  margin: 0 4.5%;
-}
-
-.mobile-keyboard-row > .virtual-key {
-  display: flex;
-  flex: 1 1 0;
-  align-items: center;
-  justify-content: center;
-  height: 38px;
-  padding: 0 2px;
-  border-bottom-width: 2px;
-  font-size: 18px;
-  touch-action: manipulation;
-}
-
-.mobile-keyboard-row > .mode-key {
-  flex: 1.5;
-  font-size: 13px;
-}
-
-.mobile-keyboard-row.bottom-row > .virtual-key {
-  font-size: 14px;
-}
-
-.mobile-keyboard-row.utility-row > .virtual-key {
-  min-height: 30px;
-  height: 30px;
-  font-size: 15px;
+.virtual-key.enter,
+.virtual-key.interrupt {
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--terminal-accent, #f26b38) 30%, var(--terminal-panel, #242421)),
+    color-mix(in srgb, var(--terminal-accent, #f26b38) 12%, var(--terminal-panel, #242421)));
 }
 
 .virtual-key.enter {
-  color: var(--terminal-bg, #1b1b19);
-  background: var(--terminal-accent, #f26b38);
+  font-size: 22px;
+}
+
+.virtual-key:hover {
   border-color: var(--terminal-accent, #f26b38);
 }
 
-.virtual-keyboard.mobile .virtual-shortcut-grid,
-.virtual-keyboard.mobile .virtual-quick-input-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.virtual-key.active {
+  color: var(--terminal-accent, #f26b38);
+  border-color: var(--terminal-accent, #f26b38);
+  background: color-mix(in srgb, var(--terminal-accent, #f26b38) 20%, var(--terminal-panel, #242421));
 }
 
-.virtual-keyboard.mobile .virtual-function-main {
-  gap: 14px;
+.virtual-key:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 3px var(--key-edge), 0 1px 0 var(--key-edge);
 }
 
-.virtual-keyboard.mobile .virtual-function-keys {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.virtual-keyboard[data-light-effect='wave'] .virtual-key::after {
+  animation: keyboard-light-wave 2.8s ease-in-out infinite;
+  animation-delay: var(--light-delay, 0s);
 }
 
-.virtual-keyboard.mobile .virtual-function-panel .virtual-key {
-  --key-height: 36px;
+.virtual-keyboard[data-light-effect='breathe'] .virtual-key::after {
+  animation: keyboard-light-breathe 3.2s ease-in-out infinite;
 }
 
-.virtual-keyboard.mobile .virtual-function-keys > .virtual-key {
-  min-height: 28px;
+.virtual-keyboard[data-light-effect='off'] .virtual-key::after {
+  opacity: 0;
+  box-shadow: none;
 }
 
-.virtual-keyboard.mobile .virtual-editing-keys,
-.virtual-keyboard.mobile .virtual-navigation-block,
-.virtual-keyboard.mobile .virtual-direction-pad {
-  --key-height: 36px;
+@keyframes keyboard-light-wave {
+  0%, 100% { opacity: 0.15; transform: scaleX(0.5); }
+  45% { opacity: 1; transform: scaleX(1); box-shadow: 0 0 9px 2px color-mix(in srgb, var(--key-light) 85%, transparent); }
+}
+
+@keyframes keyboard-light-breathe {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; box-shadow: 0 0 8px 2px color-mix(in srgb, var(--key-light) 80%, transparent); }
+}
+
+@media (max-width: 720px) {
+  .compact-keyboard-deck {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-areas:
+      'esc tab del backspace home end'
+      'ctrl alt shift pageup up pagedown'
+      'interrupt light enter left down right';
+  }
 }
 
 @media (max-height: 480px) {
-  .virtual-keyboard.mobile {
-    max-height: min(240px, 54vh);
+  .virtual-key {
+    height: 30px;
   }
 
-  .virtual-keyboard.mobile .virtual-keyboard-header {
-    min-height: 22px;
-    padding-bottom: 0;
+  .compact-keyboard-deck {
+    gap: 6px;
+    padding: 5px 6px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .virtual-keyboard[data-light-effect] .virtual-key::after {
+    animation: none;
+    transform: none;
   }
 
-  .virtual-keyboard.mobile .virtual-keyboard-header > button {
-    height: 22px;
-  }
-
-  .virtual-keyboard.mobile .virtual-keyboard-tabs {
-    padding-bottom: 3px;
-  }
-
-  .virtual-keyboard.mobile .virtual-keyboard-tabs > button {
-    min-height: 26px;
-    padding: 3px 8px;
-  }
-
-  .virtual-keyboard.mobile .mobile-typing-keyboard {
-    gap: 2px;
-  }
-
-  .virtual-keyboard.mobile .mobile-keyboard-row > .virtual-key {
-    min-height: 22px;
-    height: 22px;
-    font-size: 13px;
-  }
-
-  .virtual-keyboard.mobile .mobile-keyboard-row.utility-row > .virtual-key {
-    min-height: 20px;
-    height: 20px;
-  }
-
-  .virtual-keyboard.mobile .virtual-function-keys {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-  }
-
-  .virtual-keyboard.mobile .virtual-function-panel {
-    --key-height: 23px;
-    gap: 7px;
-  }
-
-  .virtual-keyboard.mobile .virtual-function-panel .virtual-key {
-    --key-height: 23px;
-    min-height: 23px;
-  }
-
-  .virtual-keyboard.mobile .virtual-editing-keys,
-  .virtual-keyboard.mobile .virtual-navigation-block,
-  .virtual-keyboard.mobile .virtual-direction-pad {
-    --key-height: 23px;
+  .virtual-key {
+    transition: none;
   }
 }
 
@@ -3330,10 +3088,6 @@ textarea {
   .virtual-keyboard-header > span {
     font-size: 9px;
     line-height: 1.4;
-  }
-
-  .virtual-keyboard-layout {
-    --key-height: 32px;
   }
 
   .settings-popover {

@@ -88,20 +88,41 @@ export const virtualNumpadKeys = [
   { ...character('.', undefined, 'NumpadDecimal'), row: 6, column: 3 },
 ];
 
-// Match the app's narrow-screen layout and phone landscape orientation.
-export const mobileVirtualKeyboardQuery =
-  "(max-width: 720px) and (pointer: coarse), (max-width: 480px), (max-height: 480px) and (pointer: coarse)";
+export const compactVirtualKeys = [
+  { code: "Escape", area: "esc" },
+  { code: "Tab", area: "tab" },
+  { code: "Delete", area: "del" },
+  { code: "Backspace", area: "backspace" },
+  { code: "Home", area: "home" },
+  { code: "End", area: "end" },
+  { code: "ControlLeft", area: "ctrl" },
+  { code: "AltLeft", area: "alt" },
+  { code: "PageUp", area: "pageup" },
+  { code: "ArrowUp", area: "up" },
+  { code: "PageDown", area: "pagedown" },
+  { code: "ShiftLeft", area: "shift" },
+  { code: "ArrowLeft", area: "left" },
+  { code: "ArrowDown", area: "down" },
+  { code: "ArrowRight", area: "right" },
+  { code: "Enter", area: "enter", label: "↵" },
+];
 
-export const mobileLetterRows = [letters("qwertyuiop"), letters("asdfghjkl"), letters("zxcvbnm")];
-export const mobileNumberKeys = virtualKeyboardRows[1].slice(1, 11);
-export const mobileCommonSymbolKeys = [..."/#$-_@:=&" + String.fromCharCode(92)]
-  .map((value) => character(value, undefined, `CommonSymbol${value}`));
-export const mobileSymbolPages: VirtualKey[][][] = [
-  ["1234567890", "-/:;()$&@" + String.fromCharCode(34)],
-  ["[]{}#%^*+=", "_" + String.fromCharCode(92) + "|~<>€£¥•"],
-].map((page) => page.map((row) => [...row].map((value) => character(value, undefined, `Symbol${value}`))));
-export const mobilePunctuationKeys = [...".,?!" + String.fromCharCode(39)]
-  .map((value) => character(value, undefined, `Punctuation${value}`));
+export const keyboardLightEffects = [
+  { id: "wave", label: "流光" },
+  { id: "breathe", label: "呼吸" },
+  { id: "steady", label: "常亮" },
+  { id: "off", label: "关闭" },
+] as const;
+export type KeyboardLightEffect = typeof keyboardLightEffects[number]["id"];
+
+/** Only consume latched modifiers for a single printable ASCII input, never IME text or paste sequences. */
+export function modifyNativeKeyboardInput(input: string, modifiers: VirtualKeyModifiers) {
+  if (!/^[\x20-\x7e]$/.test(input) || !(modifiers.ctrl || modifiers.alt || modifiers.shift)) {
+    return { input, consumed: false };
+  }
+  const encoded = encodeVirtualKey(character(input, input.toUpperCase()), modifiers);
+  return encoded ? { input: encoded, consumed: true } : { input, consumed: false };
+}
 
 const allVirtualKeys: VirtualKey[] = [...virtualKeyboardRows.flat(), ...virtualNavigationKeys, ...virtualNumpadKeys];
 export function getVirtualKey(code: string): VirtualKey {
@@ -109,63 +130,6 @@ export function getVirtualKey(code: string): VirtualKey {
   if (!result) throw new Error(`Unknown virtual key: ${code}`);
   return result;
 }
-
-export interface VirtualKeyShortcut {
-  id: string;
-  label: string;
-  description: string;
-  key: VirtualKey;
-  modifiers?: Partial<VirtualKeyModifiers>;
-}
-
-export const aiVirtualKeyShortcuts: VirtualKeyShortcut[] = [
-  { id: "interrupt", label: "Ctrl+C", description: "中断当前操作", key: getVirtualKey("KeyC"), modifiers: { ctrl: true } },
-  { id: "escape", label: "Esc", description: "取消 / 关闭菜单", key: getVirtualKey("Escape") },
-  { id: "confirm", label: "Enter", description: "确认 / 提交输入", key: getVirtualKey("Enter") },
-  { id: "complete", label: "Tab", description: "补全 / 下一项", key: getVirtualKey("Tab") },
-  { id: "mode", label: "Shift+Tab", description: "切换模式（视工具）", key: getVirtualKey("Tab"), modifiers: { shift: true } },
-  { id: "newline", label: "Alt+Enter", description: "换行（视工具）", key: getVirtualKey("Enter"), modifiers: { alt: true } },
-  { id: "clear", label: "Ctrl+L", description: "清屏 / 重绘", key: getVirtualKey("KeyL"), modifiers: { ctrl: true } },
-  { id: "line-start", label: "Ctrl+A", description: "移到行首", key: getVirtualKey("KeyA"), modifiers: { ctrl: true } },
-  { id: "line-end", label: "Ctrl+E", description: "移到行尾", key: getVirtualKey("KeyE"), modifiers: { ctrl: true } },
-  { id: "clear-line", label: "Ctrl+U", description: "删除到行首", key: getVirtualKey("KeyU"), modifiers: { ctrl: true } },
-  { id: "delete-word", label: "Ctrl+W", description: "删除前一个词", key: getVirtualKey("KeyW"), modifiers: { ctrl: true } },
-  { id: "previous", label: "↑", description: "上一条历史输入", key: getVirtualKey("ArrowUp") },
-];
-
-export interface VirtualQuickInput {
-  id: string;
-  label: string;
-  text: string;
-}
-
-export const openSpecQuickInputs: VirtualQuickInput[] = [
-  { id: "explore", label: "探索需求", text: "$openspec-explore " },
-  { id: "propose", label: "创建提案", text: "$openspec-propose " },
-  { id: "apply", label: "实施变更", text: "$openspec-apply-change " },
-  { id: "update", label: "更新计划", text: "$openspec-update-change " },
-  { id: "sync", label: "同步规格", text: "$openspec-sync-specs " },
-  { id: "archive", label: "归档变更", text: "$openspec-archive-change " },
-];
-
-export const commonQuickInputGroups: { label: string; inputs: VirtualQuickInput[] }[] = [
-  { label: "常用提示", inputs: [
-    { id: "continue", label: "继续执行", text: "继续完成剩余任务。" },
-    { id: "chinese", label: "中文回答", text: "请使用中文回答。" },
-    { id: "analyze", label: "先分析问题", text: "请先分析问题原因，并给出修改方案。" },
-    { id: "review", label: "检查改动", text: "请检查当前改动，重点关注潜在 bug 和回归风险。" },
-    { id: "test", label: "运行测试", text: "请运行相关检查和测试，并说明结果。" },
-    { id: "explain", label: "解释代码", text: "请解释这段代码的作用和执行流程。" },
-  ] },
-  { label: "终端命令", inputs: [
-    { id: "codex", label: "启动 Codex", text: "codex" },
-    { id: "resume", label: "恢复会话", text: "codex resume" },
-    { id: "git-status", label: "Git 状态", text: "git status" },
-    { id: "git-diff", label: "Git 差异", text: "git diff" },
-    { id: "frontend-test", label: "前端测试", text: "npm run test:frontend" },
-    { id: "frontend-build", label: "前端构建", text: "npm run build:frontend" },
-  ] },
-];
 
 const cursorKeys: Record<string, string> = {
   ArrowUp: 'A', ArrowDown: 'B', ArrowRight: 'C', ArrowLeft: 'D', Home: 'H', End: 'F',
