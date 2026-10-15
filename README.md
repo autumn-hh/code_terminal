@@ -10,11 +10,11 @@
 
 ## 下载
 
-- [下载 Windows exe](https://github.com/hh357418341-create/code_terminal/releases/download/app-v0.1.0/code-terminal.exe)
-- [下载 macOS dmg（Apple Silicon）](https://github.com/hh357418341-create/code_terminal/releases/download/app-v0.1.0/Code%20Terminal_0.1.0_aarch64.dmg)
-- [下载 macOS app（zip，Apple Silicon）](https://github.com/hh357418341-create/code_terminal/releases/download/app-v0.1.0/code-terminal-macos-app.zip)
-- [查看所有发布文件](https://github.com/hh357418341-create/code_terminal/releases/tag/app-v0.1.0)
-- [查看最新发布](https://github.com/hh357418341-create/code_terminal/releases/latest)
+- [下载 Windows exe](https://github.com/autumn-hh/code_terminal/releases/download/app-v0.1.0/code-terminal.exe)
+- [下载 macOS dmg（Apple Silicon）](https://github.com/autumn-hh/code_terminal/releases/download/app-v0.1.0/Code%20Terminal_0.1.0_aarch64.dmg)
+- [下载 macOS app（zip，Apple Silicon）](https://github.com/autumn-hh/code_terminal/releases/download/app-v0.1.0/code-terminal-macos-app.zip)
+- [查看所有发布文件](https://github.com/autumn-hh/code_terminal/releases/tag/app-v0.1.0)
+- [查看最新发布](https://github.com/autumn-hh/code_terminal/releases/latest)
 
 Windows 和 macOS 产物都由 `Release` 工作流上传到同一个 Release：`code-terminal.exe` 是 Windows 便携版，`Code Terminal_<版本>_aarch64.dmg` 是 macOS 安装包，`code-terminal-macos-app.zip` 是免安装的 app 压缩包。当前 `app-v0.1.0` 已经提供 Windows exe，macOS 的 dmg / app zip 需要等包含 macOS 构建的发布上线后才可下载；如果链接暂时不可用，到「查看最新发布」里找最新文件，或按下面「构建 macOS dmg」本地打包。Linux 版本仍在验证中。
 
