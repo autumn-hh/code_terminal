@@ -185,12 +185,20 @@ function getStableViewportHeight() {
   return Math.max(320, Math.floor(Math.min(...heights)));
 }
 
+function shouldShowVirtualKeyboard() {
+  if (isTauriRuntime()) return true;
+  const { userAgent, maxTouchPoints } = window.navigator;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)
+    || (/Macintosh/i.test(userAgent) && maxTouchPoints > 1);
+}
+
 export function App() {
   const [windowProjectId, setWindowProjectId] = useState<string | null>(() => getWindowProjectId());
   const [state, setState] = useState<WorkbenchState>(emptyState);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showVirtualKeyboard] = useState(shouldShowVirtualKeyboard);
   const [virtualKeyboardOpen, setVirtualKeyboardOpen] = useState(false);
   const [mobileProjectsOpen, setMobileProjectsOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -1048,7 +1056,7 @@ export function App() {
             onDoubleClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <button
+            {showVirtualKeyboard && <button
               aria-controls="terminal-virtual-keyboard"
               aria-expanded={virtualKeyboardOpen}
               aria-label="虚拟键盘"
@@ -1059,7 +1067,7 @@ export function App() {
               onClick={toggleVirtualKeyboard}
             >
               <Keyboard size={16} />
-            </button>
+            </button>}
             <button
               aria-expanded={settingsOpen}
               aria-haspopup="dialog"
@@ -1439,7 +1447,7 @@ export function App() {
             </div>
 
             <div className="workspace-actions" ref={settingsMenuRef}>
-              <button
+              {showVirtualKeyboard && <button
                 aria-controls="terminal-virtual-keyboard"
                 aria-expanded={virtualKeyboardOpen}
                 aria-label="虚拟键盘"
@@ -1450,7 +1458,7 @@ export function App() {
                 onClick={toggleVirtualKeyboard}
               >
                 <Keyboard size={16} />
-              </button>
+              </button>}
               <button
                 aria-expanded={settingsOpen}
                 aria-haspopup="dialog"
@@ -1694,7 +1702,7 @@ export function App() {
             activeProjectName={currentProject?.name || null}
             activeProjectPath={currentProject?.path || null}
             appearance={terminalAppearance}
-            virtualKeyboardOpen={virtualKeyboardOpen}
+            virtualKeyboardOpen={showVirtualKeyboard && virtualKeyboardOpen}
             onCloseVirtualKeyboard={() => setVirtualKeyboardOpen(false)}
             controlRequest={terminalControlRequest}
             sessionResumeRequest={sessionResumeRequest}

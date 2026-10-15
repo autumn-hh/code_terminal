@@ -21,7 +21,7 @@ export function VirtualKeyboard({ onKey, onClose }: VirtualKeyboardProps) {
         {compactVirtualKeys.map(({ id, code, label, modifiers }) => (
           <button
             aria-label={label}
-            className={["virtual-key", id === "enter" ? "enter" : "", code.startsWith("Arrow") ? "arrow" : ""].join(" ")}
+            className={["virtual-key", id === "delete" ? "delete" : "", code.startsWith("Arrow") ? "arrow" : ""].join(" ")}
             data-key-id={id}
             data-keycode={code}
             key={id}

@@ -100,7 +100,7 @@ export const compactVirtualKeys: CompactVirtualKey[] = [
   { id: "tab", code: "Tab", label: "Tab" },
   { id: "escape", code: "Escape", label: "Esc" },
   { id: "up", code: "ArrowUp", label: "↑" },
-  { id: "enter", code: "Enter", label: "Enter" },
+  { id: "delete", code: "Delete", label: "Delete" },
   { id: "ctrl-c", code: "KeyC", label: "Ctrl+C", modifiers: { ctrl: true } },
   { id: "alt-enter", code: "Enter", label: "Alt+Enter", modifiers: { alt: true } },
   { id: "left", code: "ArrowLeft", label: "←" },

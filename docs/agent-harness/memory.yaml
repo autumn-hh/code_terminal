@@ -93,7 +93,8 @@ validation:
 ux_memory:
   mobile:
     - "The phone Web UI should prioritize terminal space."
-    - "Virtual keyboard is a mechanical-style terminal control deck with exactly two rows of five keys on all screen sizes. Row 1: Ctrl+D, Tab, Esc, Up, Enter. Row 2: Ctrl+C, Alt+Enter, Left, Down, Right. Text uses the system IME."
+    - "Virtual keyboard is a mechanical-style terminal control deck with exactly two rows of five keys. Row 1: Ctrl+D, Tab, Esc, Up, Delete. Row 2: Ctrl+C, Alt+Enter, Left, Down, Right. Text uses the system IME."
+    - "PC browsers hide the keyboard button and deck, including narrow windows and touchscreen PCs. Phone/tablet browsers (including iPad desktop UA) keep the button; native desktop behavior is unchanged. Detect device type, not viewport width."
     - "Each chord sends immediately to the active terminal with its own modifiers; there are no latched modifier keys or native-input transformations."
     - "Keyboard keycaps inherit page theme/custom colors and keep press feedback. No keyboard lighting, light effects or light settings. Opening or tapping the deck preserves native input focus."
     - "Top function buttons must be hideable or compact on mobile."

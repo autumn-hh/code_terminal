@@ -1810,13 +1810,13 @@ textarea {
   font-size: 20px;
 }
 
-.virtual-key.enter {
+.virtual-key.delete {
   background: linear-gradient(165deg,
     color-mix(in srgb, var(--terminal-accent, #f26b38) 30%, var(--terminal-panel, #242421)),
     color-mix(in srgb, var(--terminal-accent, #f26b38) 12%, var(--terminal-panel, #242421)));
 }
 
-.virtual-key.enter {
+.virtual-key.delete {
   font-size: 12px;
 }
 

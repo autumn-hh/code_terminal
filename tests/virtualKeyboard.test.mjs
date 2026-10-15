@@ -79,7 +79,7 @@ test("numpad follows Num Lock and application keypad mode", () => {
 });
 
 test("compact keyboard sends each shortcut once with its own modifiers", () => {
-  const expected = ["\x04", "\t", "\x1b", "\x1b[A", "\r", "\x03", "\x1b\r", "\x1b[D", "\x1b[B", "\x1b[C"];
+  const expected = ["\x04", "\t", "\x1b", "\x1b[A", "\x1b[3~", "\x03", "\x1b\r", "\x1b[D", "\x1b[B", "\x1b[C"];
   assert.equal(new Set(compactVirtualKeys.map((key) => key.id)).size, 10);
   assert.deepEqual(compactVirtualKeys.map(({ code, modifiers }) =>
     encodeVirtualKey(getVirtualKey(code), { ...initialVirtualKeyModifiers, ...modifiers })), expected);
