@@ -73,8 +73,11 @@ type TerminalViewMode = "dialog" | "terminal";
 
 interface TerminalTouchScrollState {
   touchId: number;
+  startClientX: number;
+  startClientY: number;
   lastClientY: number;
   accumulatedDelta: number;
+  scrolling: boolean;
 }
 
 interface DialogQuickScrollDragState {
@@ -213,7 +216,7 @@ export interface TerminalSessionHandle {
   fit: () => void;
   interrupt: () => void;
   sendRawInput: (input: string) => void;
-  sendComposerInput: (input: string) => void;
+  sendComposerInput: (input: string, suffix?: string) => void;
 }
 
 interface TerminalSessionViewProps {
@@ -247,6 +250,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const sessionIdRef = useRef<string | null>(null);
     const activeProjectIdRef = useRef(activeProjectId);
     const conversationLogRef = useRef<HTMLDivElement | null>(null);
+    const dialogFollowOutputRef = useRef(true);
+    const dialogScrollTopRef = useRef(0);
+    const [showLatest, setShowLatest] = useState(false);
     const dialogQuickScrollRailRef = useRef<HTMLDivElement | null>(null);
     const dialogQuickScrollThumbRef = useRef<HTMLButtonElement | null>(null);
     const dialogQuickScrollDragRef = useRef<DialogQuickScrollDragState | null>(null);
@@ -1857,6 +1863,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
     function showTerminalView() {
       resetTerminalTouchScroll();
+      const buffer = terminalRef.current?.buffer.active;
+      setShowLatest(Boolean(buffer && buffer.viewportY < buffer.baseY));
       setViewMode("terminal");
       viewModeRef.current = "terminal";
       // Remove hidden transcript nodes; the authoritative transcript remains
@@ -1867,7 +1875,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       writeTuiDebugLog("view-mode-terminal");
       window.setTimeout(() => {
         scheduleFitAndResize({ force: true, settle: true });
-        terminalRef.current?.focus();
+        if (!window.matchMedia("(pointer: coarse)").matches) terminalRef.current?.focus();
         logFocusDebug("view-mode-terminal-after-focus");
       }, 0);
     }
@@ -1898,8 +1906,11 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const touch = event.touches[0];
       terminalTouchScrollRef.current = {
         touchId: touch.identifier,
+        startClientX: touch.clientX,
+        startClientY: touch.clientY,
         lastClientY: touch.clientY,
         accumulatedDelta: 0,
+        scrolling: false,
       };
     }
 
@@ -1912,6 +1923,15 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       const touch = Array.from(event.touches).find((item) => item.identifier === scroll.touchId);
       if (!touch) return;
+      if (event.touches.length !== 1) {
+        resetTerminalTouchScroll();
+        return;
+      }
+      if (!scroll.scrolling) {
+        const distanceY = Math.abs(touch.clientY - scroll.startClientY);
+        if (distanceY < 8 || distanceY <= Math.abs(touch.clientX - scroll.startClientX)) return;
+        scroll.scrolling = true;
+      }
 
       const deltaY = scroll.lastClientY - touch.clientY;
       scroll.lastClientY = touch.clientY;
@@ -1919,12 +1939,26 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       if (event.cancelable) {
         event.preventDefault();
       }
+      event.stopPropagation();
 
       const lineHeight = getTerminalLinePixelHeight();
       const lines = Math.trunc(scroll.accumulatedDelta / lineHeight);
       if (lines === 0) return;
 
-      terminal.scrollLines(lines);
+      // Let xterm encode wheel input for full-screen TUIs and mouse protocols.
+      // Normal shell history stays local and never receives arrow-key input.
+      if (terminal.buffer.active.type === "alternate" || terminal.modes.mouseTrackingMode !== "none") {
+        terminal.element?.dispatchEvent(new WheelEvent("wheel", {
+          deltaY: lines,
+          deltaMode: WheelEvent.DOM_DELTA_LINE,
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true,
+          cancelable: true,
+        }));
+      } else {
+        terminal.scrollLines(lines);
+      }
       scroll.accumulatedDelta -= lines * lineHeight;
     }
 
@@ -1934,8 +1968,30 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       const stillActive = Array.from(event.touches).some((touch) => touch.identifier === scroll.touchId);
       if (!stillActive) {
+        if (scroll.scrolling && event.cancelable) event.preventDefault();
         resetTerminalTouchScroll();
       }
+    }
+
+    function syncDialogReadingPosition() {
+      const log = conversationLogRef.current;
+      if (!log || viewModeRef.current !== "dialog") return;
+      dialogScrollTopRef.current = log.scrollTop;
+      dialogFollowOutputRef.current = log.scrollHeight - log.clientHeight - log.scrollTop < 32;
+      setShowLatest(!dialogFollowOutputRef.current);
+      syncDialogQuickScroll();
+    }
+
+    function scrollToLatest() {
+      if (viewModeRef.current === "dialog") {
+        dialogFollowOutputRef.current = true;
+        const log = conversationLogRef.current;
+        if (log) log.scrollTop = log.scrollHeight;
+        syncDialogReadingPosition();
+      } else {
+        terminalRef.current?.scrollToBottom();
+      }
+      setShowLatest(false);
     }
 
     function getDialogQuickScrollMetrics() {
@@ -2306,20 +2362,20 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       void startSession();
     }
 
-    function sendComposerInputToTerminal(input: string) {
+    function sendComposerInputToTerminal(input: string, suffix = "\r") {
       const terminal = terminalRef.current;
       const normalizedInput = normalizeInput(input);
       if (!normalizedInput.trim()) return;
 
       if (terminal?.modes.bracketedPasteMode) {
         sendRawOrQueueInput(`\x1b[200~${normalizedInput}\x1b[201~`);
-        submitRawOrQueueInput("\r", bracketedPasteSubmitDelayMs);
+        submitRawOrQueueInput(suffix, bracketedPasteSubmitDelayMs);
         return;
       }
 
       const data = normalizedInput.includes("\n")
-        ? `${normalizedInput.replace(/\n/g, "\r")}\r`
-        : `${normalizedInput}\r`;
+        ? `${normalizedInput.replace(/\n/g, "\r")}${suffix}`
+        : `${normalizedInput}${suffix}`;
       sendRawOrQueueInput(data);
     }
 
@@ -2706,7 +2762,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       resumeCodexSession,
       stopSession,
       focus() {
-        if (viewMode === "terminal") {
+        if (viewMode === "terminal" && !window.matchMedia("(pointer: coarse)").matches) {
           terminalRef.current?.focus();
         } else {
           blurTerminalInput();
@@ -2723,11 +2779,14 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         writeRawTerminalInput("\x03");
       },
       sendRawInput(input: string) {
-        sendRawOrQueueInput(input);
+        const data = terminalRef.current?.modes.applicationCursorKeysMode
+          ? input.replace(/^\x1b\[([ABCDHF])$/, "\x1bO$1")
+          : input;
+        sendRawOrQueueInput(data);
       },
-      sendComposerInput(input: string) {
-        appendConversationMessage("user", input);
-        sendComposerInputToTerminal(input);
+      sendComposerInput(input: string, suffix = "\r") {
+        if (suffix === "\r") appendConversationMessage("user", input);
+        sendComposerInputToTerminal(input, suffix);
       },
     }));
 
@@ -2735,7 +2794,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const log = conversationLogRef.current;
       if (!log || viewModeRef.current !== "dialog") return;
 
-      log.scrollTop = log.scrollHeight;
+      log.scrollTop = dialogFollowOutputRef.current ? log.scrollHeight : dialogScrollTopRef.current;
+      setShowLatest(!dialogFollowOutputRef.current);
       syncDialogQuickScroll();
     }, [conversationMessages]);
 
@@ -2743,15 +2803,23 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const log = conversationLogRef.current;
       if (!log) return;
 
-      const sync = () => syncDialogQuickScroll();
+      const sync = () => {
+        if (viewModeRef.current === "dialog" && dialogFollowOutputRef.current) {
+          log.scrollTop = log.scrollHeight;
+        }
+        syncDialogQuickScroll();
+      };
+      const observer = new ResizeObserver(sync);
+      observer.observe(log);
       const frame = window.requestAnimationFrame(sync);
-      log.addEventListener("scroll", sync, { passive: true });
+      log.addEventListener("scroll", syncDialogReadingPosition, { passive: true });
       window.addEventListener("resize", sync);
       window.visualViewport?.addEventListener("resize", sync);
 
       return () => {
+        observer.disconnect();
         window.cancelAnimationFrame(frame);
-        log.removeEventListener("scroll", sync);
+        log.removeEventListener("scroll", syncDialogReadingPosition);
         window.removeEventListener("resize", sync);
         window.visualViewport?.removeEventListener("resize", sync);
       };
@@ -2763,13 +2831,13 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       const handleTouchCancel = () => resetTerminalTouchScroll();
       host.addEventListener("touchstart", handleTerminalTouchStart, { passive: true });
-      host.addEventListener("touchmove", handleTerminalTouchMove, { passive: false });
-      host.addEventListener("touchend", handleTerminalTouchEnd, { passive: true });
+      host.addEventListener("touchmove", handleTerminalTouchMove, { passive: false, capture: true });
+      host.addEventListener("touchend", handleTerminalTouchEnd, { passive: false });
       host.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
       return () => {
         host.removeEventListener("touchstart", handleTerminalTouchStart);
-        host.removeEventListener("touchmove", handleTerminalTouchMove);
+        host.removeEventListener("touchmove", handleTerminalTouchMove, true);
         host.removeEventListener("touchend", handleTerminalTouchEnd);
         host.removeEventListener("touchcancel", handleTouchCancel);
       };
@@ -2832,6 +2900,11 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       syncScrollbackAvailability();
       const scrollbackRenderDisposable = terminal.onRender(syncScrollbackAvailability);
       const scrollbackBufferDisposable = terminal.buffer.onBufferChange(syncScrollbackAvailability);
+      const scrollPositionDisposable = terminal.onScroll(() => {
+        if (viewModeRef.current === "terminal") {
+          setShowLatest(terminal.buffer.active.viewportY < terminal.buffer.active.baseY);
+        }
+      });
       writeTuiDebugLog("xterm-opened", {
         fontSize: appearance.fontSize,
         lineHeight: appearance.lineHeight,
@@ -2960,6 +3033,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         bufferDisposable.dispose();
         scrollbackRenderDisposable.dispose();
         scrollbackBufferDisposable.dispose();
+        scrollPositionDisposable.dispose();
         dataDisposable.dispose();
         unlistenOutput.then((unlisten) => unlisten());
         unlistenExit.then((unlisten) => unlisten());
@@ -3027,78 +3101,89 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           tuiContextUsage ? "has-context" : ""
         } mode-${viewMode}`}
       >
-        <div className="terminal-view-switch" role="group" aria-label="显示模式">
-          <button
-            className={viewMode === "dialog" ? "active" : ""}
-            type="button"
-            onClick={showDialogView}
-          >
-            对话
-          </button>
-          <button
-            className={viewMode === "terminal" ? "active" : ""}
-            type="button"
-            onClick={showTerminalView}
-          >
-            终端
-          </button>
-        </div>
-        {tuiContextUsage ? (
-          <div
-            className="terminal-dialog-context"
-            aria-label={getTuiContextTitle(tuiContextUsage)}
-            title={getTuiContextTitle(tuiContextUsage)}
-          >
-            <span className="terminal-dialog-context-label">{getTuiContextLabel(tuiContextUsage)}</span>
-            <span className="terminal-dialog-context-meter" aria-hidden="true">
-              <span style={{ width: `${getTuiContextUsedPercent(tuiContextUsage)}%` }} />
-            </span>
-          </div>
-        ) : null}
-        <div className="terminal-dialog-split" aria-hidden={viewMode !== "dialog"}>
-          <div
-            className={`terminal-dialog-log ${dialogQuickScrollVisible ? "has-quick-scroll" : ""}`}
-            ref={conversationLogRef}
-            aria-label="对话记录"
-          >
-            {conversationMessages
-              .filter((message) => viewMode !== "dialog" || message.role === "user" || message.kind === "tui")
-              .map((message) => (
-                <div className={`terminal-dialog-row ${message.role} ${message.kind ?? "normal"}`} key={message.id}>
-                  <div className="terminal-dialog-bubble">{renderConversationText(message)}</div>
-                </div>
-              ))}
-          </div>
-          <div
-            className={`terminal-dialog-quick-scroll ${dialogQuickScrollVisible ? "visible" : ""}`}
-            ref={dialogQuickScrollRailRef}
-            aria-hidden={!dialogQuickScrollVisible}
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) {
-                handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget);
-              }
-            }}
-            onPointerMove={(event) => handleDialogQuickScrollPointerMove(event.nativeEvent)}
-            onPointerUp={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-            onPointerCancel={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-          >
+        <div className="terminal-session-toolbar">
+          <div className="terminal-view-switch" role="group" aria-label="显示模式">
             <button
-              className="terminal-dialog-quick-scroll-thumb"
+              className={viewMode === "dialog" ? "active" : ""}
+              aria-pressed={viewMode === "dialog"}
               type="button"
-              ref={dialogQuickScrollThumbRef}
-              aria-label="快速拖动对话记录"
-              tabIndex={dialogQuickScrollVisible ? 0 : -1}
-              onPointerDown={(event) => handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget)}
+              onClick={showDialogView}
+            >
+              对话
+            </button>
+            <button
+              className={viewMode === "terminal" ? "active" : ""}
+              aria-pressed={viewMode === "terminal"}
+              type="button"
+              onClick={showTerminalView}
+            >
+              终端
+            </button>
+          </div>
+          {tuiContextUsage ? (
+            <div
+              className="terminal-dialog-context"
+              aria-label={getTuiContextTitle(tuiContextUsage)}
+              title={getTuiContextTitle(tuiContextUsage)}
+            >
+              <span className="terminal-dialog-context-label">{getTuiContextLabel(tuiContextUsage)}</span>
+              <span className="terminal-dialog-context-meter" aria-hidden="true">
+                <span style={{ width: `${getTuiContextUsedPercent(tuiContextUsage)}%` }} />
+              </span>
+            </div>
+          ) : null}
+        </div>
+        <div className="terminal-session-content">
+          <div className="terminal-dialog-split" aria-hidden={viewMode !== "dialog"}>
+            <div
+              className={`terminal-dialog-log ${dialogQuickScrollVisible ? "has-quick-scroll" : ""}`}
+              ref={conversationLogRef}
+              aria-label="对话记录"
+            >
+              {conversationMessages
+                .filter((message) => viewMode !== "dialog" || message.role === "user" || message.kind === "tui")
+                .map((message) => (
+                  <div className={`terminal-dialog-row ${message.role} ${message.kind ?? "normal"}`} key={message.id}>
+                    <div className="terminal-dialog-bubble">{renderConversationText(message)}</div>
+                  </div>
+                ))}
+            </div>
+            <div
+              className={`terminal-dialog-quick-scroll ${dialogQuickScrollVisible ? "visible" : ""}`}
+              ref={dialogQuickScrollRailRef}
+              aria-hidden={!dialogQuickScrollVisible}
+              onPointerDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget);
+                }
+              }}
               onPointerMove={(event) => handleDialogQuickScrollPointerMove(event.nativeEvent)}
               onPointerUp={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
               onPointerCancel={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-            />
+            >
+              <button
+                className="terminal-dialog-quick-scroll-thumb"
+                type="button"
+                ref={dialogQuickScrollThumbRef}
+                aria-label="快速拖动对话记录"
+                tabIndex={dialogQuickScrollVisible ? 0 : -1}
+                onPointerDown={(event) => handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget)}
+                onPointerMove={(event) => handleDialogQuickScrollPointerMove(event.nativeEvent)}
+                onPointerUp={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
+                onPointerCancel={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
+              />
+            </div>
           </div>
+          <div
+            className={`terminal-host ${isVisible ? "visible" : ""} ${isActive ? "active" : ""}`}
+            ref={hostRef}
+          />
+          {showLatest && (
+            <button type="button" className="terminal-scroll-latest" onClick={scrollToLatest}>
+              ↓ 回到最新
+            </button>
+          )}
         </div>
-        <div
-          className={`terminal-host ${isVisible ? "visible" : ""} ${isActive ? "active" : ""}`}
-          ref={hostRef}
-        />
       </div>
     );
   },

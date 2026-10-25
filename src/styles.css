@@ -2177,6 +2177,31 @@ textarea {
   display: block;
 }
 
+.terminal-session-content {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-scroll-latest {
+  position: absolute;
+  right: 32px;
+  bottom: 10px;
+  z-index: 7;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--terminal-fg);
+  background: var(--terminal-panel);
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.terminal-composer-keys {
+  display: none;
+}
+
 .terminal-dialog-log {
   position: absolute;
   top: 0;
@@ -3371,5 +3396,148 @@ textarea {
     width: 34px;
     height: 34px;
     margin-bottom: 0;
+  }
+}
+
+/* Keep mobile controls outside the terminal canvas, including short keyboard viewports. */
+@media (max-width: 720px) and (pointer: coarse), (max-width: 480px) {
+  .terminal-session.visible {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .terminal-session-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 6px;
+    border-bottom: 1px solid var(--terminal-border);
+  }
+
+  .terminal-view-switch {
+    position: static;
+    order: 2;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 0;
+  }
+
+  .terminal-view-switch button {
+    min-width: 52px;
+    height: 44px;
+    font-size: 12px;
+    touch-action: manipulation;
+  }
+
+  .terminal-view-switch button:hover {
+    color: var(--terminal-fg);
+  }
+
+  .terminal-session-toolbar .terminal-dialog-context {
+    position: static;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+  }
+
+  .terminal-session-content {
+    position: relative;
+    inset: auto;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+
+  .terminal-dialog-log,
+  .terminal-session.has-context .terminal-dialog-log {
+    padding-top: 10px;
+  }
+
+  .terminal-dialog-quick-scroll,
+  .terminal-session.has-context .terminal-dialog-quick-scroll {
+    top: 8px;
+  }
+
+  .terminal-host,
+  .terminal-host .xterm,
+  .terminal-host .xterm-screen,
+  .terminal-host .xterm-viewport {
+    touch-action: pinch-zoom;
+  }
+
+  .terminal-composer-area {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .terminal-composer-toggle {
+    width: calc(100% - 16px);
+    min-height: 44px;
+    margin: 0 8px;
+    font-size: 12px;
+    touch-action: manipulation;
+  }
+
+  .terminal-composer-area:not(.expanded) .terminal-composer-toggle {
+    margin-bottom: 4px;
+  }
+
+  .terminal-composer,
+  .shell.mobile-chrome-hidden .terminal-composer {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 4px;
+    margin: 0 8px 6px;
+    padding: 4px;
+  }
+
+  .terminal-composer-input {
+    min-width: 0;
+    min-height: 44px;
+    max-height: min(120px, 25dvh);
+    padding: 10px 8px;
+    font-size: max(16px, var(--terminal-font-size, 14px));
+    line-height: 1.4;
+    overflow-y: auto;
+  }
+
+  .terminal-composer-send {
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    touch-action: manipulation;
+  }
+
+  .terminal-composer-keys {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 4px;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    scrollbar-width: thin;
+  }
+
+  .terminal-composer-keys button {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 10px;
+    white-space: nowrap;
+    color: var(--terminal-fg);
+    background: color-mix(in srgb, var(--terminal-fg) 7%, transparent);
+    border-radius: 5px;
+    font-size: 12px;
+    touch-action: manipulation;
+  }
+
+  .terminal-composer-keys button:active {
+    background: color-mix(in srgb, var(--terminal-accent) 22%, transparent);
+  }
+
+  .shell.mobile-chrome-hidden .terminal-session-toolbar {
+    display: none;
   }
 }

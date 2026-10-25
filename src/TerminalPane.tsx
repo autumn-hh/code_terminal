@@ -10,7 +10,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   ClipboardEvent as ReactClipboardEvent,
-  FormEvent as ReactFormEvent,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -436,6 +435,7 @@ export function TerminalPane({
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const allowNextComposerLineBreakRef = useRef(false);
   const suppressNextComposerLineBreakRef = useRef(false);
+  const composerComposingRef = useRef(false);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTabsState>(() =>
     createInitialTabs({ id: activeProjectId, name: activeProjectName, path: activeProjectPath }),
   );
@@ -455,7 +455,7 @@ export function TerminalPane({
     request: TerminalCommandRequest;
   } | null>(null);
   const [composerInputValue, setComposerInputValue] = useState("");
-  const [isComposerExpanded, setIsComposerExpanded] = useState(false);
+  const [isComposerExpanded, setIsComposerExpanded] = useState(() => window.matchMedia("(pointer: coarse)").matches);
   const renderColumnWeights = useMemo(
     () => normalizeGridWeights(columnWeights, activeLayout.columns),
     [activeLayout.columns, columnWeights],
@@ -506,6 +506,7 @@ export function TerminalPane({
   }
 
   function submitComposerInput(inputValue = composerInputValue) {
+    if (composerComposingRef.current) return;
     const value = inputValue.trimEnd();
     if (!value) return;
 
@@ -538,7 +539,7 @@ export function TerminalPane({
 
   function handleComposerInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.defaultPrevented) return;
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || composerComposingRef.current || event.keyCode === 229) return;
 
     if (event.key === "Escape") {
       event.preventDefault();
@@ -570,6 +571,7 @@ export function TerminalPane({
         event.preventDefault();
         event.stopPropagation();
         suppressNextComposerLineBreakRef.current = true;
+        window.setTimeout(() => { suppressNextComposerLineBreakRef.current = false; }, 0);
         if (event.currentTarget.value.trim()) {
           submitComposerInput(event.currentTarget.value);
         } else {
@@ -591,8 +593,8 @@ export function TerminalPane({
     }
   }
 
-  function handleComposerBeforeInput(event: ReactFormEvent<HTMLTextAreaElement>) {
-    const inputEvent = event.nativeEvent as InputEvent;
+  function handleComposerBeforeInput(inputEvent: InputEvent) {
+    if (inputEvent.isComposing || composerComposingRef.current) return;
     if (inputEvent.inputType !== "insertLineBreak" && inputEvent.inputType !== "insertParagraph") {
       return;
     }
@@ -602,16 +604,52 @@ export function TerminalPane({
       return;
     }
 
-    event.preventDefault();
+    inputEvent.preventDefault();
     if (suppressNextComposerLineBreakRef.current) {
       suppressNextComposerLineBreakRef.current = false;
       return;
     }
 
-    if (event.currentTarget.value.trim()) {
-      submitComposerInput(event.currentTarget.value);
+    const input = inputEvent.currentTarget as HTMLTextAreaElement;
+    if (input.value.trim()) {
+      submitComposerInput(input.value);
     } else {
       sendComposerEnterToTerminal();
+    }
+  }
+
+  // React's beforeinput polyfill does not reliably expose mobile inputType.
+  useEffect(() => {
+    const input = composerInputRef.current;
+    if (!input) return;
+    input.addEventListener("beforeinput", handleComposerBeforeInput);
+    return () => input.removeEventListener("beforeinput", handleComposerBeforeInput);
+  });
+
+  useEffect(() => {
+    const input = composerInputRef.current;
+    if (!input || !isComposerExpanded) return;
+    input.style.height = "auto";
+    input.style.height = `${input.scrollHeight}px`;
+  }, [composerInputValue, isComposerExpanded]);
+
+  function sendComposerShortcut(key: string) {
+    if (composerComposingRef.current) return;
+    const terminal = terminalHandlesRef.current[terminalTabs.activeTabId];
+    if (!terminal) return;
+    if (key === "\x03") {
+      terminal.interrupt();
+      return;
+    }
+    if (key === "\t" && composerInputValue) {
+      if (/[\r\n]/.test(composerInputValue)) {
+        insertComposerText("\t");
+        return;
+      }
+      terminal.sendComposerInput(composerInputValue, "\t");
+      setComposerInputValue("");
+    } else {
+      terminal.sendRawInput(key);
     }
   }
 
@@ -1223,11 +1261,13 @@ export function TerminalPane({
               data-tab-id={tab.id}
               key={tab.id}
               style={getGridCellStyle(tab.id, visibleTabs, activeLayout)}
-              onMouseDown={(event) => {
+              onPointerDown={(event) => {
                 // Let xterm retain pointer capture while dragging its scrollbar.
                 // Refocusing the input here can trigger a TUI focus redraw.
-                if (event.target instanceof Element && event.target.closest(".scrollbar")) return;
-                focusTerminal(tab.id);
+                if (event.target instanceof Element && event.target.closest(".terminal-cell-header")) return;
+                const preserveFocus = event.pointerType === "touch" ||
+                  (event.target instanceof Element && Boolean(event.target.closest("button, .scrollbar")));
+                focusTerminal(tab.id, preserveFocus ? "none" : "terminal");
               }}
             >
               <div
@@ -1350,7 +1390,8 @@ export function TerminalPane({
           id="terminal-composer-form"
           onSubmit={(event) => {
             event.preventDefault();
-            submitComposerInput();
+            if (hasComposerText) submitComposerInput();
+            else if (!composerComposingRef.current) sendComposerEnterToTerminal();
           }}
         >
           <textarea
@@ -1359,25 +1400,54 @@ export function TerminalPane({
             aria-label="输入内容"
             autoCapitalize="off"
             autoCorrect="off"
+            autoComplete="off"
             enterKeyHint="send"
             placeholder="输入给当前会话"
-            rows={2}
+            rows={1}
             spellCheck={false}
             value={composerInputValue}
             onChange={(event) => setComposerInputValue(event.target.value)}
-            onBeforeInput={handleComposerBeforeInput}
+            onCompositionStart={() => { composerComposingRef.current = true; }}
+            onCompositionEnd={() => { composerComposingRef.current = false; }}
+            onKeyUp={(event) => {
+              if (event.key === "Enter") allowNextComposerLineBreakRef.current = false;
+            }}
+            onBlur={() => {
+              composerComposingRef.current = false;
+              allowNextComposerLineBreakRef.current = false;
+            }}
             onKeyDownCapture={handleComposerInputKeyDown}
             onKeyDown={handleComposerInputKeyDown}
             onPaste={handleComposerPaste}
           />
           <button
             className="terminal-composer-send"
-            disabled={!hasComposerText}
-            title="发送"
+            aria-label={hasComposerText ? "发送" : "回车确认"}
+            title={hasComposerText ? "发送" : "回车确认"}
+            onPointerDown={(event) => event.preventDefault()}
             type="submit"
           >
             <SendHorizontal size={16} />
           </button>
+          <div className="terminal-composer-keys" role="group" aria-label="终端快捷键">
+            {[
+              ["Tab", "\t", "补全命令"],
+              ["Esc", "\x1b", "退出或取消"],
+              ["↑", "\x1b[A", "上方向键"],
+              ["↓", "\x1b[B", "下方向键"],
+              ["←", "\x1b[D", "左方向键"],
+              ["→", "\x1b[C", "右方向键"],
+              ["PgUp", "\x1b[5~", "向上翻页"],
+              ["PgDn", "\x1b[6~", "向下翻页"],
+              ["Ctrl+C", "\x03", "中断当前命令"],
+            ].map(([label, input, title]) => (
+              <button key={label} type="button" title={title} aria-label={title}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => sendComposerShortcut(input)}>
+                {label}
+              </button>
+            ))}
+          </div>
         </form>
       </div>
     </section>

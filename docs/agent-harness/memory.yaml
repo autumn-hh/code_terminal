@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-10-15"
+updated: "2026-10-25"
 
 project:
   name: "Code Terminal"
@@ -97,6 +97,10 @@ ux_memory:
     - "Toolbar/actions must not squeeze the color/theme/font controls."
     - "Appearance controls should wrap, scroll, or collapse instead of compressing."
     - "Font-size and line-height steppers must not overlap on phone widths; validate their groups, steppers, and inputs separately."
+    - "Mobile view switches occupy a separate toolbar above terminal content; keep touch targets at least 44px high, including short software-keyboard viewports."
+    - "Touch swipes scroll normal terminal history locally and use xterm wheel handling for alternate-screen or mouse-aware TUIs; swiping must not focus the terminal keyboard."
+    - "Dialog output follows only while at the bottom; preserve reading position during incoming output and view switches, with a return-to-latest control."
+    - "The mobile composer opens by default and offers horizontally scrolling TUI keys. Tab transfers a single-line draft for completion without Enter; an empty send button confirms the TUI."
   terminal_input:
     - "Enter sends when composer has text."
     - "Shift+Enter inserts newline."
