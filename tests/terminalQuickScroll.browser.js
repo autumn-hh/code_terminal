@@ -50,7 +50,7 @@ async (page) => {
   check(await grip().getAttribute('aria-valuenow')===await grip().getAttribute('aria-valuemax'),'Mouse drag must reach bottom');
   const atBottom=await grip().getAttribute('aria-valuenow');
   const edge=await grip().boundingBox();
-  await page.mouse.move(edge.x+22,edge.y+2); await page.mouse.down();
+  await page.mouse.move(edge.x+edge.width/2,edge.y+2); await page.mouse.down();
   check(await grip().getAttribute('aria-valuenow')===atBottom,'Grabbing off-center must not jump');
   await page.mouse.move(edge.x-100,0,{steps:10}); await page.mouse.up();
   check(Number(await grip().getAttribute('aria-valuenow'))===0,'Pointer capture must clamp a drag beyond the rail');
@@ -67,8 +67,8 @@ async (page) => {
   check(writes.some(data=>/\x1b[\[O]A/.test(data)),'TUI drag must send up navigation');
   await output('\x1b[?1000h\x1b[?1006h');
   writes.length=0;
-  await page.getByRole('button',{name:'TUI 滚动向下翻动',exact:true}).click();
-  check(writes.some(data=>/\x1b\[<65;/.test(data)),'TUI step must use mouse protocol');
+  await dragTo(0.9,true);
+  check(writes.some(data=>/\x1b\[<65;/.test(data)),'TUI drag must use mouse protocol');
   await page.screenshot({path:'output/playwright/quick-scroll-tui-390.png'});
   await output('\x1b[?1000l\x1b[?1006l');
   await page.getByRole('button',{name:'对话',exact:true}).click();
@@ -81,6 +81,37 @@ async (page) => {
   check(await log.evaluate(el=>el.scrollTop)===0,'Dialog output must preserve dragged position');
   await dragTo(1);
   check(await log.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)<2,'Dialog drag must reach bottom');
+  async function checkCompact(mode,touch){
+    const bounds=await page.evaluate(mode=>{
+      const root=document.querySelector('.terminal-quick-scroll');
+      const rail=root.querySelector('.terminal-quick-scroll-track');
+      const thumb=root.querySelector('.terminal-quick-scroll-grip');
+      const control=root.getBoundingClientRect(), g=thumb.getBoundingClientRect();
+      const text=document.querySelector(mode==='终端'?'.terminal-host':'.terminal-dialog-log');
+      const textRect=text.getBoundingClientRect();
+      const content=root.parentElement.getBoundingClientRect();
+      const visible=getComputedStyle(thumb,'::before');
+      const visibleLeft=g.right-parseFloat(visible.right)-parseFloat(visible.width);
+      const transparent=[root,rail,thumb].every(el=>{
+        const s=getComputedStyle(el);
+        return s.backgroundColor==='rgba(0, 0, 0, 0)'&&parseFloat(s.borderLeftWidth)===0&&s.boxShadow==='none';
+      });
+      const freeY=g.top>control.top+24?control.top+8:control.bottom-8;
+      const target=document.elementFromPoint(g.x+g.width/2,freeY);
+      return {
+        clear:visibleLeft>=textRect.right-1,inside:g.top>=control.top-1&&g.bottom<=control.bottom+1&&g.right<=innerWidth,
+        hitWidth:g.width,visibleWidth:parseFloat(visible.width),visibleHeight:parseFloat(visible.height),
+        gutter:content.right-textRect.right,transparent,
+        passThrough:!target?.closest('.terminal-quick-scroll'),
+        textOverflow:mode==='对话'&&text.scrollWidth>text.clientWidth,
+        pageOverflow:document.documentElement.scrollWidth>innerWidth,
+      };
+    },mode);
+    check(bounds.clear&&bounds.inside&&!bounds.textOverflow&&!bounds.pageOverflow,'Text/control bounds: '+JSON.stringify(bounds));
+    check(bounds.hitWidth===(touch?32:18)&&bounds.visibleWidth===(touch?8:6)&&bounds.visibleHeight===32,'Compact grip size: '+JSON.stringify(bounds));
+    check(Math.abs(bounds.gutter-12)<1&&bounds.transparent&&bounds.passThrough,'Rail must be compact, transparent and pass through: '+JSON.stringify(bounds));
+    check(await page.locator('.terminal-quick-scroll-step').count()===0,'Large arrow buttons must not return');
+  }
   for(const [width,height,touch] of [[360,740,true],[390,844,true],[884,1104,true],[1180,820,true],[884,420,true],[1280,820,false]]){
     await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:touch,maxTouchPoints:5});
     await page.setViewportSize({width,height});
@@ -88,16 +119,27 @@ async (page) => {
     await dragTo(0.4,touch);
     for(const mode of ['对话','终端']){
       await page.getByRole('button',{name:mode,exact:true}).click();
-      const bounds=await page.evaluate(mode=>{
-        const control=document.querySelector('.terminal-quick-scroll').getBoundingClientRect();
-        const text=document.querySelector(mode==='终端'?'.terminal-host':'.terminal-dialog-log').getBoundingClientRect();
-        const g=document.querySelector('.terminal-quick-scroll-grip').getBoundingClientRect();
-        return {clear:text.right<=control.left,inside:g.top>=control.top&&g.bottom<=control.bottom,width:g.width};
-      },mode);
-      check(bounds.clear&&bounds.inside&&bounds.width>=44,'Drag control must not overlap text or escape bounds');
+      await checkCompact(mode,touch);
       await page.screenshot({path:'output/playwright/quick-scroll-'+(mode==='终端'?'tui':'dialog')+'-'+width+'x'+height+'.png'});
     }
     await page.getByRole('button',{name:'对话',exact:true}).click();
   }
-  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','alternate TUI','SGR mouse protocol','dialog drag','phone/tablet/desktop and short-height visual boundaries']};
+  await page.route('**/api/set_terminal_appearance',r=>r.fulfill({json:{projects:[],activeProjectId:null,terminalAppearance:r.request().postDataJSON().appearance}}));
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.getByRole('button',{name:'浅色',exact:true}).click();
+  await page.getByRole('spinbutton',{name:'字号',exact:true}).fill('22');
+  await page.getByRole('spinbutton',{name:'字号',exact:true}).press('Tab');
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  // 1920x1230 physical display at 150% scaling: 1280x820 CSS pixels.
+  await cdp.send('Emulation.setDeviceMetricsOverride',{width:1280,height:820,deviceScaleFactor:1.5,mobile:false});
+  for(const mode of ['对话','终端']){
+    await page.getByRole('button',{name:mode,exact:true}).click();
+    await page.waitForTimeout(200);
+    await dragTo(0.4);
+    await checkCompact(mode,false);
+    await page.mouse.move(200,100);
+    await page.screenshot({path:'output/playwright/compact-light-150-'+(mode==='终端'?'tui':'dialog')+'.png'});
+  }
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','alternate TUI','SGR mouse protocol','dialog drag','phone/tablet/desktop and short-height visual boundaries','transparent rail click-through','12px gutter and slim grip','light theme at 150% display scaling and 22px text']};
 }

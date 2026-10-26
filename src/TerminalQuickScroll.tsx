@@ -65,8 +65,6 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep }: Props)
   if (!available) return null;
   return (
     <div className="terminal-quick-scroll" role="group" aria-label={label + "快速滚动"}>
-      <button type="button" className="terminal-quick-scroll-step" aria-label={label + "向上翻动"}
-        title="向上翻动" onPointerDown={event=>event.preventDefault()} onClick={()=>onStep(-Math.max(1, value.viewport - 1))}>⌃</button>
       <div className="terminal-quick-scroll-track" ref={railRef}
         onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop}>
         <button type="button" className={'terminal-quick-scroll-grip' + (value.program ? ' program' : '')}
@@ -75,7 +73,7 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep }: Props)
           aria-orientation={value.program ? undefined : 'vertical'}
           aria-valuemin={value.program ? undefined : 0} aria-valuemax={value.program ? undefined : value.max}
           aria-valuenow={value.program ? undefined : Math.round(value.position)}
-          title={value.program ? '上下拖动控制 TUI 滚动；也可点击上下按钮翻动' : '上下拖动快速定位（' + percentage + '%）'}
+          title={value.program ? '上下拖动控制 TUI 滚动' : '上下拖动快速定位（' + percentage + '%）'}
           onKeyDown={event=>{
             const page = Math.max(1, value.viewport - 1);
             const steps: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, PageUp: -page, PageDown: page };
@@ -83,10 +81,8 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep }: Props)
             else if (!value.program && (event.key === 'Home' || event.key === 'End')) {
               event.preventDefault(); event.stopPropagation(); onPosition(event.key === 'Home' ? 0 : value.max);
             }
-          }}><span aria-hidden="true">⋮</span></button>
+          }} />
       </div>
-      <button type="button" className="terminal-quick-scroll-step" aria-label={label + "向下翻动"}
-        title="向下翻动" onPointerDown={event=>event.preventDefault()} onClick={()=>onStep(Math.max(1, value.viewport - 1))}>⌄</button>
     </div>
   );
 }
