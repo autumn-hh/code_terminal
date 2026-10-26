@@ -16,7 +16,7 @@
     "bundle:mac:universal": "tauri build --target universal-apple-darwin --bundles app,dmg",
     "bundle:mac:universal:clt": "DEVELOPER_DIR=/Library/Developer/CommandLineTools tauri build --target universal-apple-darwin --bundles app,dmg",
     "build:frontend": "tsc && vite build",
-    "test:frontend": "tsc -p tsconfig.test.json && node --test tests/terminalOutputBatch.test.mjs tests/terminalImeAnchor.test.mjs tests/terminalCursorController.test.mjs tests/terminalCursorOutputFilter.test.mjs tests/terminalTabFocus.test.mjs tests/terminalThemes.test.mjs",
+    "test:frontend": "tsc -p tsconfig.test.json && node --test tests/terminalProgramScroll.test.mjs tests/terminalOutputBatch.test.mjs tests/terminalImeAnchor.test.mjs tests/terminalCursorController.test.mjs tests/terminalCursorOutputFilter.test.mjs tests/terminalTabFocus.test.mjs tests/terminalThemes.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 1420"
   },
   "dependencies": {

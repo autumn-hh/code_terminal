@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, RefObject } from "react";
+import { TerminalProgramScroll } from "./terminalProgramScroll";
 
 export interface ScrollPosition {
   position: number;
@@ -18,8 +19,11 @@ interface Props {
 
 export function TerminalQuickScroll({ value, label, onPosition, onStep, terminalHost }: Props) {
   const railRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ id: number; offset: number; lastY: number; remainder: number; program: boolean } | null>(null);
-  const [programFraction, setProgramFraction] = useState(1);
+  const dragRef = useRef<{ id: number; offset: number; lastY: number; range: number; program: boolean } | null>(null);
+  const programScrollRef = useRef<TerminalProgramScroll | null>(null);
+  if (!programScrollRef.current) programScrollRef.current = new TerminalProgramScroll(value.viewport || 24);
+  const programScroll = programScrollRef.current;
+  const [, redrawProgramScroll] = useState(0);
   const edgeFrameRef = useRef<number | null>(null);
   const edgeDirectionRef = useRef(0);
   const stepRef = useRef(onStep);
@@ -27,7 +31,7 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
   stepRef.current = onStep;
   const available = value.program || value.max > 0;
   const percentage = value.max > 0 ? Math.round(value.position / value.max * 100) : 0;
-  const fraction = value.program ? programFraction : value.max > 0 ? Math.max(0, Math.min(1, value.position / value.max)) : 0;
+  const fraction = value.program ? programScroll.fraction : value.max > 0 ? Math.max(0, Math.min(1, value.position / value.max)) : 0;
   const thumbHeight = value.program ? 'min(48px, 100%)' : 'clamp(32px, ' + value.viewport / Math.max(1, value.max + value.viewport) * 100 + '%, 100%)';
 
   function stopEdgeScroll() {
@@ -36,22 +40,26 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
     edgeFrameRef.current = null;
   }
 
+  function updateProgramScroll(lines: number) {
+    programScroll.scroll(lines, value.viewport);
+    redrawProgramScroll(current => current + 1);
+  }
+
   function sendStep(lines: number) {
-    // xterm dispatches wheel synchronously; this movement is already reflected by the grip.
+    if (!lines) return;
+    const sent = value.program ? Math.max(-40, Math.min(40, Math.round(lines))) : lines;
+    if (!sent) return;
+    // Account for the bounded movement once; xterm dispatches wheel synchronously.
     sendingStepRef.current = true;
-    try { stepRef.current(lines); } finally { sendingStepRef.current = false; }
+    try { stepRef.current(sent); } finally { sendingStepRef.current = false; }
+    if (value.program) updateProgramScroll(sent);
   }
 
   useEffect(() => {
     const host = terminalHost?.current;
     if (!value.program || !host) return;
     const syncWheel = (event: WheelEvent) => {
-      if (sendingStepRef.current || event.ctrlKey || !event.deltaY) return;
-      const rail = railRef.current;
-      const thumb = rail?.firstElementChild as HTMLElement | null;
-      if (!rail || !thumb) return;
-      const travel = rail.clientHeight - thumb.getBoundingClientRect().height;
-      if (travel <= 0) return;
+      if (sendingStepRef.current || event.ctrlKey || event.shiftKey || !event.deltaY) return;
       const screenHeight = host.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? host.clientHeight;
       const lineHeight = Math.max(1, screenHeight / Math.max(1, value.viewport));
       const lines = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY
@@ -60,7 +68,7 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
       // This is relative movement: program-managed TUIs do not expose a total history size.
       dragRef.current = null;
       stopEdgeScroll();
-      setProgramFraction(current => Math.max(0, Math.min(1, current + lines * 8 / travel)));
+      updateProgramScroll(lines);
     };
     host.addEventListener('wheel', syncWheel, { capture: true, passive: true });
     return () => host.removeEventListener('wheel', syncWheel, true);
@@ -114,15 +122,10 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
     if (!onThumb) {
       const direction = event.clientY < thumb.getBoundingClientRect().top ? -1 : 1;
       sendStep(direction * Math.max(1, value.viewport - 1));
-      if (value.program) {
-        const rect = rail.getBoundingClientRect();
-        const distance = rect.height - thumb.getBoundingClientRect().height;
-        if (distance > 0) setProgramFraction(Math.max(0, Math.min(1, (event.clientY - rect.top - thumb.offsetHeight / 2) / distance)));
-      }
       return;
     }
     dragRef.current = { id: event.pointerId, offset: event.clientY - thumb.getBoundingClientRect().top,
-      lastY: event.clientY, remainder: 0, program: Boolean(value.program) };
+      lastY: event.clientY, range: programScroll.range, program: Boolean(value.program) };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -139,11 +142,8 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
       const distance = rect.height - thumb.getBoundingClientRect().height;
       const delta = event.clientY - drag.lastY;
       drag.lastY = event.clientY;
-      drag.remainder += delta;
-      const lines = Math.trunc(drag.remainder / 8);
-      if (lines) { sendStep(lines); drag.remainder -= lines * 8; }
       const next = distance > 0 ? Math.max(0, Math.min(1, (event.clientY - rect.top - drag.offset) / distance)) : 0;
-      setProgramFraction(next);
+      sendStep(programScroll.stepTo(next, drag.range));
       setEdgeScroll(next === 0 && delta < 0 ? -1 : next === 1 && delta > 0 ? 1 : 0);
       return;
     }
@@ -175,10 +175,6 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
             if (event.key in steps) {
               event.preventDefault(); event.stopPropagation();
               sendStep(steps[event.key]);
-              if (value.program && railRef.current) {
-                const travel = railRef.current.clientHeight - event.currentTarget.getBoundingClientRect().height;
-                if (travel > 0) setProgramFraction(current => Math.max(0, Math.min(1, current + steps[event.key] * 8 / travel)));
-              }
             }
             else if (!value.program && (event.key === 'Home' || event.key === 'End')) {
               event.preventDefault(); event.stopPropagation(); onPosition(event.key === 'Home' ? 0 : value.max);

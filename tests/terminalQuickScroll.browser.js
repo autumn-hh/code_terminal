@@ -80,6 +80,27 @@ async (page) => {
   await output('\x1b[?1049h\x1b[2J\x1b[HFull screen TUI\r\n');
   await grip().waitFor();
   check(await grip().getAttribute('role')===null&&await grip().getAttribute('aria-valuenow')===null,'TUI must keep a drag control without claiming a progress percentage');
+  const fraction=async()=>{const g=await grip().boundingBox(),r=await page.locator('.terminal-quick-scroll-track').boundingBox();return (g.y-r.y)/(r.height-g.height);};
+  const pages=async(count,direction)=>{
+    await page.locator('.xterm').evaluate((el,{count,direction})=>{
+      const r=el.querySelector('.xterm-screen').getBoundingClientRect();
+      for(let i=0;i<count;i++)el.dispatchEvent(new WheelEvent('wheel',{deltaY:direction,deltaMode:2,bubbles:true,cancelable:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2}));
+    },{count,direction});
+    await page.waitForTimeout(150);
+  };
+  await pages(5,-1);
+  check(await fraction()>0.5&&await fraction()<0.95,'Five pages must not exhaust the TUI track');
+  await pages(95,-1);
+  const far=await fraction();
+  check(far>0.01&&far<0.2,'A hundred pages must retain a usable, non-saturated estimated position');
+  await pages(5,1);
+  check(await fraction()>far&&await fraction()<0.3,'Five reverse pages must not erase a hundred pages of distance');
+  await pages(95,1);
+  check(await fraction()>0.999,'An equal round trip must restore the original bottom');
+  await page.screenshot({path:'output/playwright/tui-long-wheel-roundtrip.png'});
+  // Start a fresh program for the remaining short-range interaction checks.
+  await output('\x1b[?1049l');
+  await output('\x1b[?1049h');
   const programStart=await grip().boundingBox();
   await page.mouse.move(screen.x+screen.width/2,screen.y+screen.height/2);
   await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
@@ -89,9 +110,9 @@ async (page) => {
   check((await grip().boundingBox()).y>wheelUp,'TUI wheel down must move its grip downward');
   writes.length=0;
   await page.getByLabel('输入内容',{exact:true}).focus();
-  await dragTo(0.25,true);
+  await dragTo(0.6,true);
   const dragRect=await grip().boundingBox(), dragRail=await page.locator('.terminal-quick-scroll-track').boundingBox();
-  check(Math.abs(dragRect.y-dragRail.y-(dragRail.height-dragRect.height)*0.25)<1,'Dragging must not double-count its synthesized wheel events');
+  check(Math.abs(dragRect.y-dragRail.y-(dragRail.height-dragRect.height)*0.6)<1,'Dragging must not double-count its synthesized wheel events');
   check(writes.some(data=>/\x1b[\[O]A/.test(data)),'Alternate TUI drag must send upward navigation');
   check((await grip().boundingBox()).y<programStart.y-20,'TUI grip must move with the drag');
   check(!await page.locator('.xterm-helper-textarea').evaluate(el=>el===document.activeElement),'TUI drag must not summon the keyboard');
@@ -120,7 +141,11 @@ async (page) => {
     await page.locator('.xterm').evaluate((el,deltaMode)=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-1,deltaMode,bubbles:true,cancelable:true})),deltaMode);
     await page.waitForTimeout(100);
     check((await grip().boundingBox()).y<previous,'Line/page wheel units must synchronize grip');
-    if(deltaMode===1)check(Math.abs(previous-(await grip().boundingBox()).y-8)<1,'A wheel line must update the grip exactly once');
+    if(deltaMode===1){
+      await page.locator('.xterm').evaluate(el=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:1,deltaMode:1,bubbles:true,cancelable:true})));
+      await page.waitForTimeout(100);
+      check(Math.abs(previous-(await grip().boundingBox()).y)<1,'Equal wheel steps must restore the previous position exactly once');
+    }
   }
   await dragTo(0.75);
   writes.length=0;

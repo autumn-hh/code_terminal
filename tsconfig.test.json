@@ -7,5 +7,5 @@
     "skipLibCheck": true,
     "outDir": ".test-dist"
   },
-  "include": ["src/terminalImeAnchor.ts", "src/terminalOutputBatch.ts", "src/terminalCursorController.ts", "src/terminalCursorOutputFilter.ts", "src/terminalTabFocus.ts", "src/terminalThemes.ts", "src/types.ts"]
+  "include": ["src/terminalProgramScroll.ts", "src/terminalImeAnchor.ts", "src/terminalOutputBatch.ts", "src/terminalCursorController.ts", "src/terminalCursorOutputFilter.ts", "src/terminalTabFocus.ts", "src/terminalThemes.ts", "src/types.ts"]
 }
