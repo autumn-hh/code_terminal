@@ -3107,7 +3107,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
             ref={hostRef}
           />
           <TerminalQuickScroll
-            key={viewMode}
+            key={viewMode + (viewMode === 'terminal' && terminalScroll.program ? '-program' : '-history')}
             value={viewMode === "dialog" ? dialogScroll : terminalScroll}
             label={viewMode === "dialog" ? "对话记录" : terminalScroll.program ? "TUI 滚动" : "终端历史"}
             onPosition={position => {

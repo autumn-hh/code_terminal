@@ -71,10 +71,64 @@ async (page) => {
   await grip().press('End');
   await page.screenshot({path:'output/playwright/quick-scroll-terminal-390.png'});
   await output('\x1b[?1049h\x1b[2J\x1b[HFull screen TUI\r\n');
-  check(await grip().count()===0,'Program-controlled TUI must not show fake scroll progress');
+  await grip().waitFor();
+  check(await grip().getAttribute('role')===null&&await grip().getAttribute('aria-valuenow')===null,'TUI must keep a drag control without claiming a progress percentage');
+  const programStart=await grip().boundingBox();
+  writes.length=0;
+  await page.getByLabel('输入内容',{exact:true}).focus();
+  await dragTo(0.25,true);
+  check(writes.some(data=>/\x1b[\[O]A/.test(data)),'Alternate TUI drag must send upward navigation');
+  check((await grip().boundingBox()).y<programStart.y-20,'TUI grip must move with the drag');
+  check(!await page.locator('.xterm-helper-textarea').evaluate(el=>el===document.activeElement),'TUI drag must not summon the keyboard');
+  const parked=(await grip().boundingBox()).y;
+  await output('\x1b[3;1HTUI redraw while reading');
+  check(Math.abs((await grip().boundingBox()).y-parked)<1,'TUI redraw must not recenter the grip');
+  writes.length=0;
+  await dragTo(0.75);
+  check(writes.some(data=>/\x1b[\[O]B/.test(data)),'Alternate TUI drag must send downward navigation');
   await output('\x1b[?1000h\x1b[?1006h');
-  check(await grip().count()===0,'Mouse-tracking TUI must not show fake scroll progress');
+  writes.length=0;
+  await dragTo(0.2,true,true);
+  check(writes.some(data=>/\x1b\[<64;/.test(data)),'Mouse-tracking TUI must receive upward wheel protocol');
+  writes.length=0;
+  await dragTo(0.8,true);
+  check(writes.some(data=>/\x1b\[<65;/.test(data)),'TUI must support re-drag after cancellation');
+  const edgeGrip=await grip().boundingBox(), edgeRail=await page.locator('.terminal-quick-scroll-track').boundingBox();
+  await page.mouse.move(edgeGrip.x+edgeGrip.width/2,edgeGrip.y+edgeGrip.height/2); await page.mouse.down();
+  await page.mouse.move(edgeGrip.x+edgeGrip.width/2,edgeRail.y+edgeRail.height-1,{steps:8});
+  const beforeHold=writes.length;
+  await page.waitForTimeout(260);
+  check(writes.length>beforeHold,'Holding the TUI grip at the edge must keep scrolling');
+  await page.mouse.up();
+  const released=writes.length;
+  await page.waitForTimeout(200);
+  check(writes.length===released,'Releasing the grip must stop edge scrolling');
+  writes.length=0;
+  await page.mouse.click(edgeRail.x+edgeRail.width/2,edgeRail.y+2);
+  await page.waitForTimeout(100);
+  check(writes.some(data=>/\x1b\[<64;/.test(data)),'TUI track click must page through the program');
   await page.screenshot({path:'output/playwright/quick-scroll-tui-390.png'});
+  const holding=await grip().boundingBox();
+  await page.mouse.move(holding.x+holding.width/2,holding.y+holding.height/2); await page.mouse.down();
+  await page.mouse.move(holding.x+holding.width/2,edgeRail.y+edgeRail.height-1,{steps:8});
+  await page.waitForTimeout(150);
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+  await page.waitForTimeout(80);
+  const blurred=writes.length;
+  await page.waitForTimeout(200);
+  check(writes.length===blurred,'Losing window focus must stop edge scrolling');
+  await page.mouse.up();
+  const changing=await grip().boundingBox();
+  await page.mouse.move(changing.x+changing.width/2,changing.y+changing.height/2); await page.mouse.down();
+  await page.mouse.move(changing.x+changing.width/2,edgeRail.y+1,{steps:8});
+  await page.waitForTimeout(150);
+  await output('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
+  const modeChanged=writes.length;
+  await page.waitForTimeout(200);
+  check(writes.length===modeChanged,'Leaving TUI mid-drag must cancel its repeated input');
+  await page.mouse.up();
+  check(await grip().getAttribute('role')==='slider','History semantics must return after exiting TUI mid-drag');
+  await output('\x1b[?1049h\x1b[2J\x1b[HFull screen TUI');
   await output('\x1b[?1000l\x1b[?1006l');
   await page.getByRole('button',{name:'对话',exact:true}).click();
   const input=page.getByLabel('输入内容',{exact:true});
@@ -87,6 +141,9 @@ async (page) => {
   await dragTo(1);
   check(await log.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)<2,'Dialog drag must reach bottom');
   await output('\x1b[?1049l');
+  await page.getByRole('button',{name:'终端',exact:true}).click();
+  check(await grip().getAttribute('role')==='slider','Leaving TUI must restore the real history scrollbar');
+  await page.getByRole('button',{name:'对话',exact:true}).click();
   async function checkCompact(mode,touch){
     const bounds=await page.evaluate(mode=>{
       const root=document.querySelector('.terminal-quick-scroll');
@@ -129,6 +186,11 @@ async (page) => {
       await checkCompact(mode,touch);
       await page.screenshot({path:'output/playwright/quick-scroll-'+(mode==='终端'?'tui':'dialog')+'-'+width+'x'+height+'.png'});
     }
+    await output('\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[HTUI responsive check');
+    await dragTo(0.3,touch);
+    check(await grip().getAttribute('role')===null,'TUI grip must remain available after resize');
+    await page.screenshot({path:'output/playwright/tui-drag-'+width+'x'+height+'.png'});
+    await output('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
     await page.getByRole('button',{name:'对话',exact:true}).click();
   }
   await page.route('**/api/set_terminal_appearance',r=>r.fulfill({json:{projects:[],activeProjectId:null,terminalAppearance:r.request().postDataJSON().appearance}}));
@@ -148,5 +210,5 @@ async (page) => {
     await page.screenshot({path:'output/playwright/compact-light-150-'+(mode==='终端'?'tui':'dialog')+'.png'});
   }
   await cdp.send('Emulation.clearDeviceMetricsOverride');
-  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','no fake TUI progress','dialog drag','phone/tablet/desktop and short-height visual boundaries','track click paging','proportional thumb and 12px gutter','light theme at 150% display scaling and 22px text']};
+  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','TUI drag and SGR protocol','moving TUI grip survives redraw','edge hold/release','TUI track paging','exit TUI restores history','dialog drag','phone/tablet/desktop and short-height visual boundaries','track click paging','proportional thumb and 12px gutter','light theme at 150% display scaling and 22px text']};
 }
