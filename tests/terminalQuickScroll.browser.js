@@ -48,6 +48,13 @@ async (page) => {
   check(Number(await grip().getAttribute('aria-valuenow'))===0,'New output must preserve reading position');
   await dragTo(1);
   check(await grip().getAttribute('aria-valuenow')===await grip().getAttribute('aria-valuemax'),'Mouse drag must reach bottom');
+  const historyBottom=(await grip().boundingBox()).y;
+  const screen=await page.locator('.xterm-screen').boundingBox();
+  await page.mouse.move(screen.x+screen.width/2,screen.y+screen.height/2);
+  await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
+  check((await grip().boundingBox()).y<historyBottom,'History wheel must move the scrollbar');
+  check(writes.length===0,'History wheel must not send terminal input');
+  await dragTo(1);
   const atBottom=await grip().getAttribute('aria-valuenow');
   const edge=await grip().boundingBox();
   await page.mouse.move(edge.x+edge.width/2,edge.y+2); await page.mouse.down();
@@ -74,9 +81,17 @@ async (page) => {
   await grip().waitFor();
   check(await grip().getAttribute('role')===null&&await grip().getAttribute('aria-valuenow')===null,'TUI must keep a drag control without claiming a progress percentage');
   const programStart=await grip().boundingBox();
+  await page.mouse.move(screen.x+screen.width/2,screen.y+screen.height/2);
+  await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
+  const wheelUp=(await grip().boundingBox()).y;
+  check(wheelUp<programStart.y,'TUI wheel up must move its grip upward');
+  await page.mouse.wheel(0,60); await page.waitForTimeout(150);
+  check((await grip().boundingBox()).y>wheelUp,'TUI wheel down must move its grip downward');
   writes.length=0;
   await page.getByLabel('输入内容',{exact:true}).focus();
   await dragTo(0.25,true);
+  const dragRect=await grip().boundingBox(), dragRail=await page.locator('.terminal-quick-scroll-track').boundingBox();
+  check(Math.abs(dragRect.y-dragRail.y-(dragRail.height-dragRect.height)*0.25)<1,'Dragging must not double-count its synthesized wheel events');
   check(writes.some(data=>/\x1b[\[O]A/.test(data)),'Alternate TUI drag must send upward navigation');
   check((await grip().boundingBox()).y<programStart.y-20,'TUI grip must move with the drag');
   check(!await page.locator('.xterm-helper-textarea').evaluate(el=>el===document.activeElement),'TUI drag must not summon the keyboard');
@@ -87,6 +102,27 @@ async (page) => {
   await dragTo(0.75);
   check(writes.some(data=>/\x1b[\[O]B/.test(data)),'Alternate TUI drag must send downward navigation');
   await output('\x1b[?1000h\x1b[?1006h');
+  const beforeMouseWheel=(await grip().boundingBox()).y;
+  await page.mouse.move(screen.x+screen.width/2,screen.y+screen.height/2);
+  await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
+  check((await grip().boundingBox()).y<beforeMouseWheel,'SGR mouse mode must also synchronize native wheel');
+  const touchBefore=(await grip().boundingBox()).y;
+  const touchX=screen.x+screen.width/2,touchY=screen.y+screen.height/2;
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:touchX,y:touchY}]});
+  for(let i=1;i<=8;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:touchX,y:touchY-100*i/8}]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForTimeout(150);
+  check((await grip().boundingBox()).y>touchBefore,'Content touch swipe must move the TUI grip');
+  // Wheel delta modes all move in the same direction; redraw must not reset them.
+  for(const deltaMode of [1,2]){
+    await dragTo(0.6);
+    const previous=(await grip().boundingBox()).y;
+    await page.locator('.xterm').evaluate((el,deltaMode)=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-1,deltaMode,bubbles:true,cancelable:true})),deltaMode);
+    await page.waitForTimeout(100);
+    check((await grip().boundingBox()).y<previous,'Line/page wheel units must synchronize grip');
+    if(deltaMode===1)check(Math.abs(previous-(await grip().boundingBox()).y-8)<1,'A wheel line must update the grip exactly once');
+  }
+  await dragTo(0.75);
   writes.length=0;
   await dragTo(0.2,true,true);
   check(writes.some(data=>/\x1b\[<64;/.test(data)),'Mouse-tracking TUI must receive upward wheel protocol');
@@ -140,6 +176,11 @@ async (page) => {
   check(await log.evaluate(el=>el.scrollTop)===0,'Dialog output must preserve dragged position');
   await dragTo(1);
   check(await log.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)<2,'Dialog drag must reach bottom');
+  const dialogWheelBefore=(await grip().boundingBox()).y, logRect=await log.boundingBox();
+  await page.mouse.move(logRect.x+logRect.width/2,logRect.y+logRect.height/2);
+  await page.mouse.wheel(0,-200); await page.waitForTimeout(150);
+  check((await grip().boundingBox()).y<dialogWheelBefore,'Dialog wheel must synchronize its scrollbar');
+  await dragTo(1);
   await output('\x1b[?1049l');
   await page.getByRole('button',{name:'终端',exact:true}).click();
   check(await grip().getAttribute('role')==='slider','Leaving TUI must restore the real history scrollbar');
