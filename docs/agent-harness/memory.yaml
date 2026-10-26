@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-10-25"
+updated: "2026-10-26"
 
 project:
   name: "Code Terminal"
@@ -101,6 +101,8 @@ ux_memory:
     - "Touch swipes scroll normal terminal history locally and use xterm wheel handling for alternate-screen or mouse-aware TUIs; swiping must not focus the terminal keyboard."
     - "Dialog output follows only while at the bottom; preserve reading position during incoming output and view switches, with a return-to-latest control."
     - "The mobile composer opens by default and offers horizontally scrolling TUI keys. Tab transfers a single-line draft for completion without Enter; an empty send button confirms the TUI."
+    - "Touch composer controls depend on pointer: coarse, not a maximum viewport width; unfolded phones/tablets must retain shortcuts above 720px, across folding and keyboard-height changes."
+    - "Tablets use the touch project drawer and non-overlapping terminal toolbar in portrait and landscape; above 720px show terminal tab labels, bound the settings panel width, and retain 44px input/action targets. Mouse desktops retain their layout."
   terminal_input:
     - "Enter sends when composer has text."
     - "Shift+Enter inserts newline."

@@ -146,8 +146,66 @@ async (page) => {
   await page.locator('.terminal-composer-keys').evaluate(el=>el.scrollLeft=el.scrollWidth);
   check(await page.getByRole('button',{name:'中断当前命令',exact:true}).isVisible(),'Last shortcut must be reachable');
   await page.screenshot({path:'output/playwright/mobile-shortcuts-end-360.png'});
+  // Crossing the phone layout breakpoint must not remove touch input controls.
+  for (const [width,height] of [[720,900],[721,900],[768,1024],[884,1104],[1104,884],[820,1180],[1180,820],[1024,1366],[1366,1024],[884,420],[1180,420],[390,844]]) {
+    await page.setViewportSize({width,height});
+    await page.getByRole('group',{name:'终端快捷键',exact:true}).waitFor({state:'visible'});
+    const keys = page.locator('.terminal-composer-keys');
+    await keys.evaluate(el=>el.scrollLeft=0);
+    writes.length=0;
+    await page.getByRole('button',{name:'上方向键',exact:true}).click();
+    await page.waitForTimeout(100);
+    check(writes.length===1 && writes[0].data==='\x1b[A','Foldable shortcut must work at '+width+'x'+height);
+    const bounds=await keys.evaluate(el=>{
+      const rect=el.getBoundingClientRect();
+      const form=el.closest('form').getBoundingClientRect();
+      return {visible:rect.height>=44 && rect.bottom<=innerHeight && rect.left>=0 && rect.right<=innerWidth,
+        insideForm:rect.left>=form.left && rect.right<=form.right && rect.bottom<=form.bottom,
+        targets:[...el.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44),
+        overflow:document.documentElement.scrollWidth>innerWidth};
+    });
+    check(bounds.visible && bounds.insideForm && bounds.targets && !bounds.overflow,'Foldable bounds failed: '+JSON.stringify(bounds));
+    const toolbar=await page.locator('.terminal-session-toolbar').boundingBox();
+    const content=await page.locator('.terminal-session-content').boundingBox();
+    check(toolbar.y+toolbar.height<=content.y+1,'Touch toolbar must not cover terminal content');
+    if(width>720){
+      await page.getByRole('button',{name:'切换项目',exact:true}).click();
+      await page.locator('.sidebar.mobile-open').waitFor({state:'visible'});
+      const drawer=await page.locator('.sidebar.mobile-open').boundingBox();
+      check(drawer.x>=0 && drawer.x+drawer.width<width,'Tablet project drawer must leave an accessible backdrop');
+      await page.locator('.mobile-project-backdrop').click();
+      await page.getByRole('button',{name:'设置',exact:true}).click();
+      const settings=page.getByRole('dialog',{name:'工作区设置',exact:true});
+      const settingsBounds=await settings.boundingBox();
+      check(settingsBounds.width<=680 && settingsBounds.x>=0 && settingsBounds.x+settingsBounds.width<=width && settingsBounds.y+settingsBounds.height<=height,'Tablet settings must fit the viewport');
+      const steppers=await settings.locator('.value-stepper').evaluateAll(elements=>elements.map(el=>{
+        const rect=el.getBoundingClientRect();
+        return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+          contained:[...el.querySelectorAll('input,button')].every(child=>{const r=child.getBoundingClientRect();return r.left>=rect.left && r.right<=rect.right+1;})};
+      }));
+      check(steppers.every(rect=>rect.contained) && (steppers[0].right<=steppers[1].left || steppers[0].bottom<=steppers[1].top),'Tablet font/line controls must not overlap');
+      await settings.getByRole('textbox',{name:'光标',exact:true}).scrollIntoViewIfNeeded();
+      if(height>700) await page.screenshot({path:'output/playwright/tablet-settings-'+width+'x'+height+'.png'});
+      await page.getByRole('button',{name:'隐藏顶部',exact:true}).click();
+      check(!await page.locator('.terminal-session-toolbar').isVisible(),'Tablet chrome must hide');
+      check(await keys.isVisible(),'Hiding tablet chrome must retain shortcuts');
+      await page.getByRole('button',{name:'显示顶部功能',exact:true}).click();
+    }
+    await page.screenshot({path:'output/playwright/foldable-'+width+'x'+height+'.png'});
+  }
+  // A phone can initially load while unfolded; the composer must start expanded.
+  await page.setViewportSize({width:884,height:1104});
+  await page.reload();
+  await page.getByRole('group',{name:'终端快捷键',exact:true}).waitFor({state:'visible'});
+  await page.getByRole('button',{name:'辅助输入',exact:true}).click();
+  await page.setViewportSize({width:390,height:844});
+  await page.setViewportSize({width:884,height:1104});
+  check(!await input.isVisible(),'Folding must preserve an explicitly collapsed composer');
+  await page.getByRole('button',{name:'辅助输入',exact:true}).click();
+  await page.getByRole('group',{name:'终端快捷键',exact:true}).waitFor({state:'visible'});
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.setViewportSize({width:1280,height:820});
+  check(!await page.locator('.terminal-composer-keys').isVisible(),'Desktop mouse layout must keep touch shortcuts hidden');
   await page.getByRole('button',{name:'终端',exact:true}).click();
   await page.screenshot({path:'output/playwright/mobile-change-desktop-1280.png'});
   return {passed:['mobile beforeinput','empty Enter/button','Shift+Enter','Chinese composition','Tab completion without submit','delayed bracketed paste','touch shell history without keyboard','alternate TUI navigation','SGR mouse wheel','application cursor mode','reading position across output and switches','return to latest','390/360/320 and keyboard-height boundaries','22px text','hide/restore toolbar','long input','collapse/expand','horizontal shortcuts','desktop switch']};
