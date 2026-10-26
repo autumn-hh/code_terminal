@@ -59,16 +59,21 @@ async (page) => {
   await grip().press('Home');
   check(Number(await grip().getAttribute('aria-valuenow'))===0,'Home must reach top');
   await grip().press('End');
+  check(await grip().evaluate(el=>getComputedStyle(el).outlineStyle)==='none','Keyboard focus must not draw a box around the transparent hit area');
+  const rail=await page.locator('.terminal-quick-scroll-track').boundingBox();
+  const bottom=Number(await grip().getAttribute('aria-valuenow'));
+  await page.mouse.click(rail.x+rail.width/2,rail.y+2);
+  const paged=Number(await grip().getAttribute('aria-valuenow'));
+  check(paged>0&&paged<bottom,'Track click must page upward, not jump to the top');
+  await grip().press('Home');
+  await page.mouse.click(rail.x+rail.width/2,rail.y+rail.height-2);
+  check(Number(await grip().getAttribute('aria-valuenow'))>0&&Number(await grip().getAttribute('aria-valuenow'))<bottom,'Track click below the thumb must page downward');
+  await grip().press('End');
   await page.screenshot({path:'output/playwright/quick-scroll-terminal-390.png'});
   await output('\x1b[?1049h\x1b[2J\x1b[HFull screen TUI\r\n');
-  check(await grip().getAttribute('role')===null,'Program-controlled scroll must not claim absolute progress');
-  writes.length=0;
-  await dragTo(0.1,true);
-  check(writes.some(data=>/\x1b[\[O]A/.test(data)),'TUI drag must send up navigation');
+  check(await grip().count()===0,'Program-controlled TUI must not show fake scroll progress');
   await output('\x1b[?1000h\x1b[?1006h');
-  writes.length=0;
-  await dragTo(0.9,true);
-  check(writes.some(data=>/\x1b\[<65;/.test(data)),'TUI drag must use mouse protocol');
+  check(await grip().count()===0,'Mouse-tracking TUI must not show fake scroll progress');
   await page.screenshot({path:'output/playwright/quick-scroll-tui-390.png'});
   await output('\x1b[?1000l\x1b[?1006l');
   await page.getByRole('button',{name:'对话',exact:true}).click();
@@ -81,6 +86,7 @@ async (page) => {
   check(await log.evaluate(el=>el.scrollTop)===0,'Dialog output must preserve dragged position');
   await dragTo(1);
   check(await log.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)<2,'Dialog drag must reach bottom');
+  await output('\x1b[?1049l');
   async function checkCompact(mode,touch){
     const bounds=await page.evaluate(mode=>{
       const root=document.querySelector('.terminal-quick-scroll');
@@ -96,20 +102,21 @@ async (page) => {
         const s=getComputedStyle(el);
         return s.backgroundColor==='rgba(0, 0, 0, 0)'&&parseFloat(s.borderLeftWidth)===0&&s.boxShadow==='none';
       });
-      const freeY=g.top>control.top+24?control.top+8:control.bottom-8;
-      const target=document.elementFromPoint(g.x+g.width/2,freeY);
+      const viewport=mode==='对话'?text.clientHeight:document.querySelector('.xterm-rows').children.length;
+      const maximum=Number(thumb.getAttribute('aria-valuemax'));
+      const expectedHeight=Math.min(control.height,Math.max(32,control.height*viewport/(maximum+viewport)));
       return {
         clear:visibleLeft>=textRect.right-1,inside:g.top>=control.top-1&&g.bottom<=control.bottom+1&&g.right<=innerWidth,
         hitWidth:g.width,visibleWidth:parseFloat(visible.width),visibleHeight:parseFloat(visible.height),
         gutter:content.right-textRect.right,transparent,
-        passThrough:!target?.closest('.terminal-quick-scroll'),
+        proportional:Math.abs(g.height-expectedHeight)<1,
         textOverflow:mode==='对话'&&text.scrollWidth>text.clientWidth,
         pageOverflow:document.documentElement.scrollWidth>innerWidth,
       };
     },mode);
     check(bounds.clear&&bounds.inside&&!bounds.textOverflow&&!bounds.pageOverflow,'Text/control bounds: '+JSON.stringify(bounds));
-    check(bounds.hitWidth===(touch?32:18)&&bounds.visibleWidth===(touch?8:6)&&bounds.visibleHeight===32,'Compact grip size: '+JSON.stringify(bounds));
-    check(Math.abs(bounds.gutter-12)<1&&bounds.transparent&&bounds.passThrough,'Rail must be compact, transparent and pass through: '+JSON.stringify(bounds));
+    check(bounds.hitWidth===(touch?32:18)&&bounds.visibleWidth===(touch?8:6)&&bounds.visibleHeight>=31.9&&bounds.proportional,'Proportional scrollbar size: '+JSON.stringify(bounds));
+    check(Math.abs(bounds.gutter-12)<1&&bounds.transparent,'Rail must remain compact and transparent: '+JSON.stringify(bounds));
     check(await page.locator('.terminal-quick-scroll-step').count()===0,'Large arrow buttons must not return');
   }
   for(const [width,height,touch] of [[360,740,true],[390,844,true],[884,1104,true],[1180,820,true],[884,420,true],[1280,820,false]]){
@@ -141,5 +148,5 @@ async (page) => {
     await page.screenshot({path:'output/playwright/compact-light-150-'+(mode==='终端'?'tui':'dialog')+'.png'});
   }
   await cdp.send('Emulation.clearDeviceMetricsOverride');
-  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','alternate TUI','SGR mouse protocol','dialog drag','phone/tablet/desktop and short-height visual boundaries','transparent rail click-through','12px gutter and slim grip','light theme at 150% display scaling and 22px text']};
+  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','no fake TUI progress','dialog drag','phone/tablet/desktop and short-height visual boundaries','track click paging','proportional thumb and 12px gutter','light theme at 150% display scaling and 22px text']};
 }

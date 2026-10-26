@@ -3514,6 +3514,11 @@ textarea {
 
 .terminal-session-content .terminal-dialog-log {
   right: 12px;
+  scrollbar-width: none;
+}
+
+.terminal-session-content .terminal-dialog-log::-webkit-scrollbar {
+  width: 0;
 }
 
 .terminal-session-content > .terminal-scroll-latest {
@@ -3522,11 +3527,11 @@ textarea {
 
 .terminal-quick-scroll {
   position: absolute;
-  top: 48px;
+  top: 4px;
   bottom: 4px;
   right: 0;
   z-index: 8;
-  width: 18px;
+  width: 12px;
   pointer-events: none;
   user-select: none;
 }
@@ -3534,15 +3539,14 @@ textarea {
 .terminal-quick-scroll-track {
   position: relative;
   height: 100%;
-  min-height: 48px;
-  pointer-events: none;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .terminal-quick-scroll-grip {
   position: absolute;
   right: 0;
-  width: 100%;
-  height: 48px;
+  width: 18px;
   padding: 0;
   background: transparent;
   border: 0;
@@ -3558,15 +3562,11 @@ textarea {
   content: "";
   position: absolute;
   right: 3px;
-  top: 8px;
+  top: 0;
   width: 6px;
-  height: 32px;
+  height: 100%;
   border-radius: 999px;
   background: color-mix(in srgb, var(--terminal-fg) 38%, var(--terminal-bg));
-}
-
-.terminal-quick-scroll-grip.program {
-  transform: translateY(-50%);
 }
 
 .terminal-quick-scroll-grip:active {
@@ -3578,9 +3578,13 @@ textarea {
   background: var(--terminal-accent);
 }
 
+.terminal-quick-scroll-grip:focus-visible {
+  outline: none;
+}
+
 .terminal-quick-scroll-grip:focus-visible::before {
   outline: 2px solid var(--terminal-accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .terminal-session-content .terminal-host .scrollbar.vertical {
@@ -3589,6 +3593,6 @@ textarea {
 }
 
 @media (pointer: coarse), (max-width: 480px) {
-  .terminal-quick-scroll { top: 4px; width: 32px; }
+  .terminal-quick-scroll-grip { width: 32px; }
   .terminal-quick-scroll-grip::before { width: 8px; }
 }
