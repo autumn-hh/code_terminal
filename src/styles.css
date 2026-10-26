@@ -2295,86 +2295,14 @@ textarea {
   background: transparent;
 }
 
-.terminal-dialog-log.has-quick-scroll {
-  padding-right: max(clamp(24px, 5vw, 72px), 44px);
-}
 
-.terminal-dialog-quick-scroll {
-  position: absolute;
-  top: 54px;
-  right: 9px;
-  bottom: 18px;
-  z-index: 6;
-  width: 30px;
-  opacity: 0;
-  pointer-events: none;
-  touch-action: none;
-  transition: opacity 120ms ease;
-  user-select: none;
-}
 
-.terminal-session.has-context .terminal-dialog-quick-scroll {
-  top: 68px;
-}
 
-.terminal-dialog-quick-scroll.visible {
-  opacity: 1;
-  pointer-events: auto;
-}
 
-.terminal-dialog-quick-scroll-thumb {
-  position: absolute;
-  top: 0;
-  right: 5px;
-  width: 20px;
-  height: var(--dialog-quick-scroll-thumb-height, 52px);
-  min-height: 44px;
-  padding: 0;
-  transform: translateY(var(--dialog-quick-scroll-thumb-offset, 0px));
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--terminal-fg, #d8e1e8) 22%, var(--terminal-panel, #0c1118)),
-      color-mix(in srgb, var(--terminal-fg, #d8e1e8) 12%, var(--terminal-bg, #070b10))
-    );
-  border: 1px solid color-mix(in srgb, var(--terminal-fg, #d8e1e8) 24%, transparent);
-  border-radius: 999px;
-  box-shadow:
-    0 8px 18px color-mix(in srgb, var(--terminal-bg, #070b10) 46%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--terminal-fg, #d8e1e8) 16%, transparent);
-  cursor: grab;
-  outline: none;
-  touch-action: none;
-}
 
-.terminal-dialog-quick-scroll-thumb::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 4px;
-  height: 22px;
-  transform: translate(-50%, -50%);
-  background:
-    radial-gradient(circle at 50% 2px, currentColor 1.5px, transparent 2px),
-    radial-gradient(circle at 50% 11px, currentColor 1.5px, transparent 2px),
-    radial-gradient(circle at 50% 20px, currentColor 1.5px, transparent 2px);
-  color: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 64%, transparent);
-}
 
-.terminal-dialog-quick-scroll-thumb:active {
-  cursor: grabbing;
-}
 
-.terminal-dialog-quick-scroll-thumb:focus-visible {
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--terminal-accent, #8ab4ff) 58%, transparent),
-    0 8px 18px color-mix(in srgb, var(--terminal-bg, #070b10) 46%, transparent);
-}
 
-.terminal-session.mode-terminal .terminal-dialog-quick-scroll {
-  display: none;
-}
 
 .terminal-dialog-context {
   position: absolute;
@@ -3117,29 +3045,13 @@ textarea {
     padding: 46px 14px 10px;
   }
 
-  .terminal-dialog-log.has-quick-scroll {
-    padding-right: 36px;
-  }
 
   .terminal-session.has-context .terminal-dialog-log {
     padding-top: 54px;
   }
 
-  .terminal-dialog-quick-scroll {
-    top: 44px;
-    right: 2px;
-    bottom: 8px;
-    width: 32px;
-  }
 
-  .terminal-session.has-context .terminal-dialog-quick-scroll {
-    top: 52px;
-  }
 
-  .terminal-dialog-quick-scroll-thumb {
-    right: 5px;
-    width: 20px;
-  }
 
   .terminal-dialog-context {
     top: 8px;
@@ -3210,16 +3122,7 @@ textarea {
     padding: 8px 8px 6px;
   }
 
-  .shell.mobile-chrome-hidden .terminal-dialog-log.has-quick-scroll,
-  .shell.mobile-chrome-hidden .terminal-session.has-context .terminal-dialog-log.has-quick-scroll {
-    padding-right: 34px;
-  }
 
-  .shell.mobile-chrome-hidden .terminal-dialog-quick-scroll,
-  .shell.mobile-chrome-hidden .terminal-session.has-context .terminal-dialog-quick-scroll {
-    top: 8px;
-    bottom: 6px;
-  }
 
   .shell.mobile-chrome-hidden .terminal-composer {
     padding: 4px 6px 6px;
@@ -3281,22 +3184,12 @@ textarea {
     padding: 44px 16px 10px;
   }
 
-  .terminal-dialog-log.has-quick-scroll {
-    padding-right: 38px;
-  }
 
   .terminal-session.has-context .terminal-dialog-log {
     padding-top: 52px;
   }
 
-  .terminal-dialog-quick-scroll {
-    top: 42px;
-    bottom: 8px;
-  }
 
-  .terminal-session.has-context .terminal-dialog-quick-scroll {
-    top: 50px;
-  }
 
   .terminal-composer {
     grid-template-columns: minmax(0, 1fr) 36px;
@@ -3349,23 +3242,12 @@ textarea {
     padding: 32px 10px 6px;
   }
 
-  .terminal-dialog-log.has-quick-scroll {
-    padding-right: 34px;
-  }
 
   .terminal-session.has-context .terminal-dialog-log {
     padding-top: 38px;
   }
 
-  .terminal-dialog-quick-scroll {
-    top: 30px;
-    right: 1px;
-    bottom: 5px;
-  }
 
-  .terminal-session.has-context .terminal-dialog-quick-scroll {
-    top: 36px;
-  }
 
   .terminal-dialog-context {
     top: 6px;
@@ -3456,10 +3338,6 @@ textarea {
     padding-top: 10px;
   }
 
-  .terminal-dialog-quick-scroll,
-  .terminal-session.has-context .terminal-dialog-quick-scroll {
-    top: 8px;
-  }
 
   .terminal-host,
   .terminal-host .xterm,
@@ -3627,4 +3505,90 @@ textarea {
     width: 44px;
     height: 44px;
   }
+}
+
+/* Reserve a stable gutter so dragging never covers text or resizes a live TUI. */
+.terminal-session-content > .terminal-host {
+  width: calc(100% - 48px);
+}
+
+.terminal-session-content .terminal-dialog-log {
+  right: 48px;
+}
+
+.terminal-session-content > .terminal-scroll-latest {
+  right: 56px;
+}
+
+.terminal-quick-scroll {
+  position: absolute;
+  top: 48px;
+  bottom: 4px;
+  right: 2px;
+  z-index: 8;
+  display: grid;
+  grid-template-rows: 44px minmax(48px, 1fr) 44px;
+  gap: 4px;
+  width: 44px;
+  user-select: none;
+  touch-action: none;
+}
+
+.terminal-quick-scroll-step,
+.terminal-quick-scroll-grip {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--terminal-fg);
+  background: color-mix(in srgb, var(--terminal-fg) 10%, var(--terminal-bg));
+  border: 1px solid color-mix(in srgb, var(--terminal-fg) 25%, transparent);
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: none;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.terminal-quick-scroll-track {
+  position: relative;
+  min-height: 48px;
+  background: color-mix(in srgb, var(--terminal-fg) 5%, transparent);
+  border-radius: 8px;
+  touch-action: none;
+}
+
+.terminal-quick-scroll-grip {
+  position: absolute;
+  left: 0;
+  height: 48px;
+  color: var(--terminal-accent);
+  border-color: color-mix(in srgb, var(--terminal-accent) 55%, var(--terminal-border));
+  cursor: grab;
+}
+
+.terminal-quick-scroll-grip.program {
+  transform: translateY(-50%);
+}
+
+.terminal-quick-scroll-grip:active {
+  cursor: grabbing;
+}
+
+.terminal-quick-scroll-step:hover,
+.terminal-quick-scroll-grip:hover {
+  background: color-mix(in srgb, var(--terminal-accent) 18%, var(--terminal-bg));
+}
+
+.terminal-session-content .terminal-host .scrollbar.vertical {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (pointer: coarse), (max-width: 480px) {
+  .terminal-quick-scroll { top: 4px; }
+}
+
+@media (max-height: 560px) {
+  .terminal-quick-scroll { grid-template-rows: minmax(48px, 1fr); }
+  .terminal-quick-scroll-step { display: none; }
 }

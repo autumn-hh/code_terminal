@@ -1266,7 +1266,7 @@ export function TerminalPane({
                 // Refocusing the input here can trigger a TUI focus redraw.
                 if (event.target instanceof Element && event.target.closest(".terminal-cell-header")) return;
                 const preserveFocus = event.pointerType === "touch" ||
-                  (event.target instanceof Element && Boolean(event.target.closest("button, .scrollbar")));
+                  (event.target instanceof Element && Boolean(event.target.closest("button, .scrollbar, .terminal-quick-scroll")));
                 focusTerminal(tab.id, preserveFocus ? "none" : "terminal");
               }}
             >

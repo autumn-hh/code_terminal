@@ -103,6 +103,7 @@ ux_memory:
     - "The mobile composer opens by default and offers horizontally scrolling TUI keys. Tab transfers a single-line draft for completion without Enter; an empty send button confirms the TUI."
     - "Touch composer controls depend on pointer: coarse, not a maximum viewport width; unfolded phones/tablets must retain shortcuts above 720px, across folding and keyboard-height changes."
     - "Tablets use the touch project drawer and non-overlapping terminal toolbar in portrait and landscape; above 720px show terminal tab labels, bound the settings panel width, and retain 44px input/action targets. Mouse desktops retain their layout."
+    - "Both transcript and terminal views have a right-side 44px drag handle in a reserved gutter. Normal history supports absolute jumps; alternate-screen/mouse-aware TUIs use relative wheel input without claiming an absolute history position. Empty history must not show a fake slider."
   terminal_input:
     - "Enter sends when composer has text."
     - "Shift+Enter inserts newline."

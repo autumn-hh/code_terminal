@@ -1,3 +1,4 @@
+import { TerminalQuickScroll, type ScrollPosition } from "./TerminalQuickScroll";
 import { FitAddon } from "@xterm/addon-fit";
 import { TerminalCursorController } from "./terminalCursorController";
 import { TerminalCursorOutputFilter } from "./terminalCursorOutputFilter";
@@ -78,10 +79,6 @@ interface TerminalTouchScrollState {
   lastClientY: number;
   accumulatedDelta: number;
   scrolling: boolean;
-}
-
-interface DialogQuickScrollDragState {
-  pointerId: number;
 }
 
 interface ConversationLine {
@@ -253,10 +250,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const dialogFollowOutputRef = useRef(true);
     const dialogScrollTopRef = useRef(0);
     const [showLatest, setShowLatest] = useState(false);
-    const dialogQuickScrollRailRef = useRef<HTMLDivElement | null>(null);
-    const dialogQuickScrollThumbRef = useRef<HTMLButtonElement | null>(null);
-    const dialogQuickScrollDragRef = useRef<DialogQuickScrollDragState | null>(null);
-    const dialogQuickScrollVisibleRef = useRef(false);
+    const [dialogScroll, setDialogScroll] = useState<ScrollPosition>({ position: 0, max: 0, viewport: 0 });
+    const [terminalScroll, setTerminalScroll] = useState<ScrollPosition>({ position: 0, max: 0, viewport: 0 });
     const startingSessionIdRef = useRef<string | null>(null);
     const pendingStartSessionRef = useRef(false);
     const resizeTimerRef = useRef<number | null>(null);
@@ -314,7 +309,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const conversationMessagesRef = useRef<ConversationMessage[]>([]);
     const [conversationMessages, publishConversationMessages] = useState<ConversationMessage[]>([]);
     const [tuiContextUsage, setTuiContextUsage] = useState<TuiContextUsage | null>(null);
-    const [dialogQuickScrollVisible, setDialogQuickScrollVisible] = useState(false);
     const [viewMode, setViewMode] = useState<TerminalViewMode>(() => {
       try {
         const savedViewMode = localStorage.getItem(terminalViewModeStorageKey);
@@ -1994,91 +1988,48 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       setShowLatest(false);
     }
 
-    function getDialogQuickScrollMetrics() {
-      const log = conversationLogRef.current;
-      const rail = dialogQuickScrollRailRef.current;
-      if (!log || !rail) return null;
-
-      const maxScroll = Math.max(0, log.scrollHeight - log.clientHeight);
-      const railRect = rail.getBoundingClientRect();
-      const railHeight = Math.max(0, railRect.height);
-      const thumbHeight =
-        maxScroll > 0 && log.scrollHeight > 0
-          ? Math.max(44, Math.min(railHeight, Math.round((log.clientHeight / log.scrollHeight) * railHeight)))
-          : railHeight;
-      const movableHeight = Math.max(0, railHeight - thumbHeight);
-
-      return {
-        log,
-        maxScroll,
-        movableHeight,
-        railTop: railRect.top,
-        thumbHeight,
-      };
-    }
-
     function syncDialogQuickScroll() {
-      const metrics = getDialogQuickScrollMetrics();
-      const thumb = dialogQuickScrollThumbRef.current;
-      const shouldShow =
-        viewModeRef.current === "dialog" &&
-        Boolean(metrics && metrics.maxScroll > 2 && metrics.movableHeight > 0);
+      const log = conversationLogRef.current;
+      if (!log || viewModeRef.current !== "dialog") return;
+      const next = { position: log.scrollTop, max: Math.max(0, log.scrollHeight - log.clientHeight), viewport: log.clientHeight };
+      setDialogScroll(current => current.position === next.position && current.max === next.max && current.viewport === next.viewport ? current : next);
+    }
 
-      if (dialogQuickScrollVisibleRef.current !== shouldShow) {
-        dialogQuickScrollVisibleRef.current = shouldShow;
-        setDialogQuickScrollVisible(shouldShow);
+    function syncTerminalQuickScroll() {
+      const terminal = terminalRef.current;
+      if (!terminal) return;
+      const buffer = terminal.buffer.active;
+      const next = { position: buffer.viewportY, max: buffer.baseY, viewport: terminal.rows,
+        program: buffer.type === "alternate" || terminal.modes.mouseTrackingMode !== "none" };
+      setTerminalScroll(current => current.position === next.position && current.max === next.max && current.viewport === next.viewport && current.program === next.program ? current : next);
+    }
+
+    function scrollDialogTo(position: number) {
+      const log = conversationLogRef.current;
+      if (!log) return;
+      log.scrollTop = position;
+      syncDialogReadingPosition();
+    }
+
+    function stepTerminalScroll(lines: number) {
+      const terminal = terminalRef.current;
+      if (!terminal) return;
+      if (terminal.buffer.active.type === "alternate" || terminal.modes.mouseTrackingMode !== "none") {
+        const screen = terminal.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
+        if (!screen) return;
+        // Target the TUI canvas, not the external rail. xterm's fallback emits one key per event.
+        const count = Math.min(40, Math.max(1, Math.abs(Math.round(lines))));
+        for (let index = 0; index < count; index += 1) {
+          terminal.element?.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE,
+            clientX: screen.left + screen.width / 2, clientY: screen.top + screen.height / 2,
+            bubbles: true, cancelable: true,
+          }));
+        }
+      } else {
+        terminal.scrollLines(Math.round(lines));
       }
-      if (!metrics || !thumb) return;
-
-      const progress = metrics.maxScroll > 0 ? metrics.log.scrollTop / metrics.maxScroll : 0;
-      const offset = Math.max(0, Math.min(metrics.movableHeight, progress * metrics.movableHeight));
-      thumb.style.setProperty("--dialog-quick-scroll-thumb-height", `${metrics.thumbHeight}px`);
-      thumb.style.setProperty("--dialog-quick-scroll-thumb-offset", `${offset}px`);
-    }
-
-    function scrollDialogQuickToClientY(clientY: number) {
-      const metrics = getDialogQuickScrollMetrics();
-      if (!metrics || metrics.maxScroll <= 0 || metrics.movableHeight <= 0) return;
-
-      const nextThumbTop = Math.max(
-        0,
-        Math.min(metrics.movableHeight, clientY - metrics.railTop - metrics.thumbHeight / 2),
-      );
-      metrics.log.scrollTop = (nextThumbTop / metrics.movableHeight) * metrics.maxScroll;
-      syncDialogQuickScroll();
-    }
-
-    function handleDialogQuickScrollPointerDown(event: PointerEvent, captureElement: HTMLElement | null) {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      if (viewModeRef.current !== "dialog") return;
-
-      dialogQuickScrollDragRef.current = { pointerId: event.pointerId };
-      captureElement?.setPointerCapture(event.pointerId);
-      scrollDialogQuickToClientY(event.clientY);
-      event.preventDefault();
-    }
-
-    function handleDialogQuickScrollPointerMove(event: PointerEvent) {
-      const drag = dialogQuickScrollDragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-
-      scrollDialogQuickToClientY(event.clientY);
-      event.preventDefault();
-    }
-
-    function stopDialogQuickScrollDrag(event?: PointerEvent) {
-      const drag = dialogQuickScrollDragRef.current;
-      if (!drag) return;
-
-      const captureElements = [dialogQuickScrollThumbRef.current, dialogQuickScrollRailRef.current];
-      if (event) {
-        captureElements.forEach((element) => {
-          if (element?.hasPointerCapture(event.pointerId)) {
-            element.releasePointerCapture(event.pointerId);
-          }
-        });
-      }
-      dialogQuickScrollDragRef.current = null;
+      syncTerminalQuickScroll();
     }
 
     function consumePendingEchoLine(line: string) {
@@ -2888,6 +2839,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       terminalRef.current = terminal;
       fitRef.current = fit;
       const syncScrollbackAvailability = () => {
+        syncTerminalQuickScroll();
         const buffer = terminal.buffer.active;
         const canScroll = buffer.baseY > 0;
         host.classList.toggle("terminal-has-scrollback", canScroll);
@@ -2901,6 +2853,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const scrollbackRenderDisposable = terminal.onRender(syncScrollbackAvailability);
       const scrollbackBufferDisposable = terminal.buffer.onBufferChange(syncScrollbackAvailability);
       const scrollPositionDisposable = terminal.onScroll(() => {
+        syncTerminalQuickScroll();
         if (viewModeRef.current === "terminal") {
           setShowLatest(terminal.buffer.active.viewportY < terminal.buffer.active.baseY);
         }
@@ -3136,7 +3089,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         <div className="terminal-session-content">
           <div className="terminal-dialog-split" aria-hidden={viewMode !== "dialog"}>
             <div
-              className={`terminal-dialog-log ${dialogQuickScrollVisible ? "has-quick-scroll" : ""}`}
+              className="terminal-dialog-log"
               ref={conversationLogRef}
               aria-label="对话记录"
             >
@@ -3148,35 +3101,23 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
                   </div>
                 ))}
             </div>
-            <div
-              className={`terminal-dialog-quick-scroll ${dialogQuickScrollVisible ? "visible" : ""}`}
-              ref={dialogQuickScrollRailRef}
-              aria-hidden={!dialogQuickScrollVisible}
-              onPointerDown={(event) => {
-                if (event.target === event.currentTarget) {
-                  handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget);
-                }
-              }}
-              onPointerMove={(event) => handleDialogQuickScrollPointerMove(event.nativeEvent)}
-              onPointerUp={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-              onPointerCancel={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-            >
-              <button
-                className="terminal-dialog-quick-scroll-thumb"
-                type="button"
-                ref={dialogQuickScrollThumbRef}
-                aria-label="快速拖动对话记录"
-                tabIndex={dialogQuickScrollVisible ? 0 : -1}
-                onPointerDown={(event) => handleDialogQuickScrollPointerDown(event.nativeEvent, event.currentTarget)}
-                onPointerMove={(event) => handleDialogQuickScrollPointerMove(event.nativeEvent)}
-                onPointerUp={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-                onPointerCancel={(event) => stopDialogQuickScrollDrag(event.nativeEvent)}
-              />
-            </div>
           </div>
           <div
             className={`terminal-host ${isVisible ? "visible" : ""} ${isActive ? "active" : ""}`}
             ref={hostRef}
+          />
+          <TerminalQuickScroll
+            key={viewMode}
+            value={viewMode === "dialog" ? dialogScroll : terminalScroll}
+            label={viewMode === "dialog" ? "对话记录" : terminalScroll.program ? "TUI 滚动" : "终端历史"}
+            onPosition={position => {
+              if (viewMode === "dialog") scrollDialogTo(position);
+              else { terminalRef.current?.scrollToLine(Math.round(position)); syncTerminalQuickScroll(); }
+            }}
+            onStep={step => {
+              if (viewMode === "dialog") scrollDialogTo((conversationLogRef.current?.scrollTop ?? 0) + step);
+              else stepTerminalScroll(step);
+            }}
           />
           {showLatest && (
             <button type="button" className="terminal-scroll-latest" onClick={scrollToLatest}>
