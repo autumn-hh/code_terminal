@@ -184,6 +184,14 @@ function getStableViewportHeight() {
   return Math.max(320, Math.floor(Math.min(...heights)));
 }
 
+function directoryErrorMessage(error: unknown, action: string) {
+  const detail = String(error);
+  if (/permission denied|access is denied|os error (13|5)\b|read-only file system/i.test(detail)) {
+    return `${action}失败：当前目录没有所需权限。请点击“工作目录”返回项目存放位置后重试。`;
+  }
+  return `${action}失败：${detail.replace(/^Error:\s*/, "")}`;
+}
+
 export function App() {
   const [windowProjectId, setWindowProjectId] = useState<string | null>(() => getWindowProjectId());
   const [state, setState] = useState<WorkbenchState>(emptyState);
@@ -530,19 +538,21 @@ export function App() {
     setDirectoryPickerError(null);
     setNewDirectoryName("");
 
-    const initialPath = currentProject?.path || directoryListing?.path || "";
+    const initialPath = currentProject?.path || "";
     void loadDirectory(initialPath || undefined);
   }
 
   async function loadDirectory(path?: string) {
     setIsDirectoryLoading(true);
     setDirectoryPickerError(null);
+    setDirectoryListing(null);
+    setDirectoryPathInput(path || "");
     try {
       const listing = await invoke<DirectoryListing>("list_directory", { path });
       setDirectoryListing(listing);
       setDirectoryPathInput(listing.path);
     } catch (err) {
-      setDirectoryPickerError(String(err));
+      setDirectoryPickerError(directoryErrorMessage(err, "打开目录"));
     } finally {
       setIsDirectoryLoading(false);
     }
@@ -555,7 +565,7 @@ export function App() {
 
   async function createDirectory(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!directoryListing || isDirectoryCreating) return;
+    if (!directoryListing || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting) return;
 
     setIsDirectoryCreating(true);
     setDirectoryPickerError(null);
@@ -564,25 +574,25 @@ export function App() {
         parentPath: directoryListing.path,
         name: newDirectoryName,
       });
-      setDirectoryListing(listing);
-      setDirectoryPathInput(listing.path);
+      const created = listing.entries.find((entry) => entry.name === newDirectoryName.trim());
       setNewDirectoryName("");
+      await loadDirectory(created?.path || listing.path);
     } catch (err) {
-      setDirectoryPickerError(String(err));
+      setDirectoryPickerError(directoryErrorMessage(err, "新建文件夹"));
     } finally {
       setIsDirectoryCreating(false);
     }
   }
 
   async function selectCurrentDirectory() {
-    if (!directoryListing || isDirectorySelecting) return;
+    if (!directoryListing || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting) return;
 
     setIsDirectorySelecting(true);
     setDirectoryPickerError(null);
     try {
       await addProjectPath(directoryListing.path);
     } catch (err) {
-      setDirectoryPickerError(String(err));
+      setDirectoryPickerError(directoryErrorMessage(err, "选择项目"));
     } finally {
       setIsDirectorySelecting(false);
     }
@@ -1115,89 +1125,101 @@ export function App() {
               </button>
             </header>
 
-            <form className="project-picker-path-form" onSubmit={submitDirectoryPath}>
-              <input
-                aria-label="当前目录路径"
-                disabled={isDirectoryLoading}
-                spellCheck={false}
-                value={directoryPathInput}
-                onChange={(event) => setDirectoryPathInput(event.target.value)}
-              />
-              <button className="project-picker-button" disabled={isDirectoryLoading} type="submit">
-                <FolderOpen size={16} />
-                打开
-              </button>
-            </form>
+            <div className="project-picker-body">
+              <form className="project-picker-path-form" onSubmit={submitDirectoryPath}>
+                <input
+                  aria-label="当前目录路径"
+                  disabled={isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  spellCheck={false}
+                  value={directoryPathInput}
+                  onChange={(event) => setDirectoryPathInput(event.target.value)}
+                />
+                <button className="project-picker-button" disabled={isDirectoryLoading || isDirectoryCreating || isDirectorySelecting} type="submit">
+                  <FolderOpen size={16} />
+                  打开
+                </button>
+              </form>
 
-            <div className="project-picker-toolbar">
-              <button
-                className="project-picker-button"
-                disabled={!directoryListing?.parentPath || isDirectoryLoading}
-                type="button"
-                onClick={() => loadDirectory(directoryListing?.parentPath || undefined)}
-              >
-                <ChevronLeft size={16} />
-                上一级
-              </button>
-              <button
-                className="project-picker-button"
-                disabled={isDirectoryLoading}
-                type="button"
-                onClick={() => loadDirectory(directoryListing?.path || directoryPathInput || undefined)}
-              >
-                <RefreshCw size={15} />
-                刷新
-              </button>
-            </div>
+              <div className="project-picker-toolbar">
+                <button
+                  className="project-picker-button"
+                  disabled={isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  type="button"
+                  onClick={() => loadDirectory()}
+                >
+                  <FolderOpen size={16} />
+                  工作目录
+                </button>
+                <button
+                  className="project-picker-button"
+                  disabled={!directoryListing?.parentPath || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  type="button"
+                  onClick={() => loadDirectory(directoryListing?.parentPath || undefined)}
+                >
+                  <ChevronLeft size={16} />
+                  上一级
+                </button>
+                <button
+                  className="project-picker-button"
+                  disabled={isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  type="button"
+                  onClick={() => loadDirectory(directoryListing?.path || directoryPathInput || undefined)}
+                >
+                  <RefreshCw size={15} />
+                  刷新
+                </button>
+              </div>
 
-            <form className="project-picker-create-form" onSubmit={createDirectory}>
-              <input
-                aria-label="新文件夹名称"
-                autoComplete="off"
-                disabled={!directoryListing || isDirectoryCreating}
-                placeholder="新文件夹名称"
-                value={newDirectoryName}
-                onChange={(event) => setNewDirectoryName(event.target.value)}
-              />
-              <button
-                className="project-picker-button"
-                disabled={!directoryListing || !newDirectoryName.trim() || isDirectoryCreating}
-                type="submit"
-              >
-                <Plus size={16} />
-                新建
-              </button>
-            </form>
+              <form className="project-picker-create-form" onSubmit={createDirectory}>
+                <input
+                  aria-label="新文件夹名称"
+                  autoComplete="off"
+                  disabled={!directoryListing || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  placeholder="新文件夹名称"
+                  value={newDirectoryName}
+                  onChange={(event) => setNewDirectoryName(event.target.value)}
+                />
+                <button
+                  className="project-picker-button"
+                  disabled={!directoryListing || !newDirectoryName.trim() || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                  type="submit"
+                >
+                  <Plus size={16} />
+                  新建
+                </button>
+              </form>
 
-            {directoryPickerError && <div className="project-picker-error">{directoryPickerError}</div>}
+              {directoryPickerError && <div className="project-picker-error" role="alert">{directoryPickerError}</div>}
 
-            <div className="project-picker-current" title={directoryListing?.path || directoryPathInput}>
-              {directoryListing?.path || "正在读取目录..."}
-            </div>
+              <div className="project-picker-current" title={directoryListing?.path || directoryPathInput}>
+                {directoryListing?.path || (isDirectoryLoading ? "正在读取目录..." : directoryPathInput || "请选择目录")}
+              </div>
 
-            <div className="project-picker-list" role="list">
-              {isDirectoryLoading && !directoryListing ? (
-                <div className="project-picker-empty">正在读取目录</div>
-              ) : directoryListing?.entries.length ? (
-                directoryListing.entries.map((entry) => (
-                  <button
-                    className="project-picker-entry"
-                    disabled={isDirectoryLoading}
-                    key={entry.path}
-                    title={entry.path}
-                    type="button"
-                    onClick={() => loadDirectory(entry.path)}
-                  >
-                    <Folder size={17} />
-                    <span>
-                      <strong>{entry.name}</strong>
-                      <small>{entry.path}</small>
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className="project-picker-empty">当前目录没有子文件夹</div>
-              )}
+              <div className="project-picker-list" role="list">
+                {isDirectoryLoading && !directoryListing ? (
+                  <div className="project-picker-empty">正在读取目录</div>
+                ) : directoryListing?.entries.length ? (
+                  directoryListing.entries.map((entry) => (
+                    <button
+                      className="project-picker-entry"
+                      disabled={isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
+                      key={entry.path}
+                      title={entry.path}
+                      type="button"
+                      onClick={() => loadDirectory(entry.path)}
+                    >
+                      <Folder size={17} />
+                      <span>
+                        <strong>{entry.name}</strong>
+                        <small>{entry.path}</small>
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="project-picker-empty">{directoryListing ? "当前目录没有子文件夹，可在上方新建后选择" : "目录未打开，请修改路径或返回工作目录"}</div>
+                )}
+              </div>
+
             </div>
 
             <footer className="project-picker-footer">
@@ -1210,7 +1232,7 @@ export function App() {
               </button>
               <button
                 className="project-picker-primary"
-                disabled={!directoryListing || isDirectorySelecting}
+                disabled={!directoryListing || isDirectoryLoading || isDirectoryCreating || isDirectorySelecting}
                 type="button"
                 onClick={selectCurrentDirectory}
               >

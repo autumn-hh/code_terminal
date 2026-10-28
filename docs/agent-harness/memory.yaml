@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-10-28"
+updated: "2026-10-29"
 
 project:
   name: "Code Terminal"
@@ -49,12 +49,19 @@ deployment:
     app_dir: "/opt/code-terminal"
     dist_dir: "/opt/code-terminal/dist"
     service: "code-terminal.service"
-    service_user: "code-terminal"
+    service_user: "root"
+    runtime_policy: "User explicitly requests root as the default for this Code Terminal deployment (2026-10-29); do not silently restore an unprivileged account. Other product boundaries still apply."
     env_file: "/etc/code-terminal.env"
     state_file: "/opt/code-terminal-state/workbench-state.json"
-    workspace_dir: "/opt/code-terminal-state/workspaces"
+    workspace_dir: "/opt"
+    runtime_home: "/root"
+    codex_binary: "/usr/local/bin/codex"
+    codex_version: "0.165.0"
+    codex_config: "/root/.codex/config.toml (root 0600; never copy its contents into project memory)"
+    codex_provider: "OpenAI; https://apexapi.roixw.com/v1; responses; gpt-5.5 model and review_model"
     listen_addr: "0.0.0.0:8787"
-    application_revision: "0b2a374dcb0e660b8feb8a433c1671b6c84c3308"
+    backend_revision: "0b2a374dcb0e660b8feb8a433c1671b6c84c3308"
+    frontend_assets: "index-BMrQtTyQ.js / index-Bw5xPw5Q.css (2026-10-29 tablet and directory-picker repair)"
     credential_store: "Local Windows Credential Manager; never copy secret values into this file."
     ssh_credential_entry: "codex:ssh:8.148.225.35:root"
     web_credential_entry: "code-terminal:http:8.148.225.35:8787"
@@ -62,8 +69,8 @@ deployment:
     boundaries:
       - "Separate product from wealth-product-tracker on the same host. Do not reuse its web credentials."
       - "Do not modify Dify, FileSync, shared reverse proxies, certificates, or the wealth containers."
-      - "Dedicated unprivileged service account; writes limited to state/workspaces and private temporary files."
-      - "No Docker socket or sudo access. Root-owned application files remain read-only to the service."
+      - "Root runtime permits opening and creating server project directories, including /opt; preserve token authentication."
+      - "Dify/FileSync directories and the shared Docker socket remain masked by systemd. This is a boundary safeguard, not a security isolation guarantee for a root process."
     deployment_record: "docs/deployment-20261028.md"
   previous_phone_server:
     host: "8.130.142.159"

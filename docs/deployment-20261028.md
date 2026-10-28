@@ -5,9 +5,9 @@
 - 地址：`http://8.148.225.35:8787/`，须携带本产品访问令牌。HTTP 不加密令牌和终端内容。
 - 程序与静态页面：`/opt/code-terminal/`。
 - 服务：`code-terminal.service`，开机自动启动，失败自动重启。
-- 运行账号：`code-terminal`；工作目录：`/opt/code-terminal-state/workspaces`。
+- 初次运行账号为 `code-terminal`，2026-10-29 按用户明确要求改为 `root`；当前工作目录为 `/opt`，HOME 为 `/root`。原工作目录仍保留。
 - 状态：`/opt/code-terminal-state/workbench-state.json`；环境：`/etc/code-terminal.env`，root 所有，权限 600。
-- systemd 使用只读系统目录、专用可写目录、禁止提权及私有临时目录；无 Docker socket、sudo 或其他产品目录访问权限。
+- 当前取消系统只读、HOME 隔离、专用目录写入和空能力集等低权限配置，可直接读写项目目录。继续屏蔽 Dify、FileSync 目录和共享 Docker socket，保留用户此前的产品边界；这不是对 root 进程的严格安全隔离。
 - 原 `8.130.142.159` 部署保留，本次未操作。
 
 SSH 账号 `root` 属于服务器管理账号，不是理财工作台或 Code Terminal 的网页登录账号。用户授权保存的 SSH 密码及新生成的 Code Terminal 令牌分别保存在本机 Windows 凭据管理器的 `codex:ssh:8.148.225.35:root` 与 `code-terminal:http:8.148.225.35:8787` 条目中。本文及 MCP 均不记录秘密值。
@@ -32,3 +32,33 @@ SSH 账号 `root` 属于服务器管理账号，不是理财工作台或 Code Te
 截图及报告位于本机 `output/playwright/deploy-20261028-*`，未纳入提交。当前服务是独立终端工作台；未迁移旧服务器项目列表、文件、CLI 配置或模型登录信息。
 
 2026-10-29 收尾复查：服务 active/running、开机启动 enabled、重启次数 0；同机理财应用、MySQL 和项目代理的容器身份与启动时间均与部署前一致。理财 `/readyz` 与公开采集页面返回 200，匿名采集会话返回预期的 401。Dify、FileSync、共享代理、DNS 和证书未改动。
+
+## 2026-10-29 目录权限与选择器修正
+
+用户截图位于 `/opt`，出现 `Permission denied (os error 13)`。初次部署的低权限账号不能在 `/opt` 新建，且理财目录被显式屏蔽；目录打开失败后前端仍保留旧列表，造成位置误解。用户随后明确要求本产品默认最高权限部署，已切换 root，令牌和项目状态保持原样。unit/env 回退副本位于 `/opt/code-terminal/backup-root-20261029-014351/`，目录权限 700、环境副本 600。仅重启 Code Terminal。
+
+目录选择器增加“工作目录”入口（返回服务工作目录，当前 `/opt`），打开失败清空旧列表并禁用选定按钮，权限错误显示可操作的中文说明；新建成功自动进入子目录。读取/创建/选择期间互斥，防止误选旧目录。弹窗使用可伸缩列表，兼容错误提示的出现和消失。
+
+本地完整服务与独立临时库中验证：失败后旧列表清空、工作目录恢复、创建失败保留名称、新建进入子目录、选择项目落库；1440×960、390×844、360×740、320×568、390×420 页面边界与按钮通过、无脚本错误。初次测试清理曾因 Windows PTY 子进程占用临时目录失败，随后仅清理本次子进程，完整重跑退出码 0。
+
+## 2026-10-29 平板与多目录修正
+
+`src/App.tsx` 将目录内容放入独立滚动区，底部取消/选择按钮保留在外；`src/styles.css` 限制对话框高度、避免列表条目压缩，并为平板提供居中 760px 面板、路径辅助行、较大的字体和至少 44px 触控按钮。键盘压缩视口时，内容区可滚动，确认按钮保持可见。长名称/路径显示省略并保留完整 title，输入框保持可编辑完整路径。
+
+- `D:/Users/hh/miniconda3/python.exe tests/projectPicker.browser.py`：通过（退出码 0）。真实本地服务、隔离状态库、160 个长名称文件夹，验证列表滚动末尾/进入/返回、当前目录实际选择落库、失败清空/恢复、创建失败保留输入和成功进入。
+- Chromium 触控模拟覆盖 1440×960、768×1024、820×1180、1180×820、1024×768、884×420、390×844、360×740、320×568、390×420、533×683。短视口模拟键盘收缩，533px 宽作为放大后的窄布局；未替代真机系统键盘及 Safari 实测。
+- 截图回读：`output/playwright/picker-many-*`；未发现页面横向溢出、长名称跨格或底部按钮被遮挡。脚本错误 0。
+- `npm run test:frontend`：24/24；`npm run build:frontend` 和 `npm run build`：通过，Windows exe 重建。
+- 公网发布 `index-BMrQtTyQ.js` / `index-Bw5xPw5Q.css`。6 个静态文件 SHA-256 与本机 dist 一致；旧 hash 资源保留，index 原子替换，回退入口 `/opt/code-terminal/index.before-tablet-20261029-015913.html`。此轮静态发布无服务重启。
+- 公网平板浏览器实际在 `/opt` 创建临时项目、选择并启动 PTY，`id -u` 为 0，cwd 正确；测试终端、项目、空目录均清理。页面 200、匿名 API 401、令牌 API 200。
+- 同机 wealth 三个容器 ID/启动时间与基线一致；readyz 和公开采集入口 200，匿名 session 401。未操作 Dify/FileSync 或共享入口。
+
+## 2026-10-29 服务器 Codex
+
+安装官方 Codex CLI 0.165.0（Linux x86_64 musl），入口 `/usr/local/bin/codex`，包目录 `/root/.codex/packages/standalone/releases/0.165.0-x86_64-unknown-linux-musl`。服务器官方脚本下载停滞，改在本机下载同一官方 GitHub release 完整包及 checksum manifest，分别与官方 release API 的 SHA-256 对照，再上传服务器复核，按官方目录布局解包并建立 symlink。未安装 Node/npm，也未改其他服务。SSH 和公网 Code Terminal PTY 中 `codex --version` 均输出 `codex-cli 0.165.0`。
+
+用户指定配置写入 `/root/.codex/config.toml`（目录 700、文件 600），保留 `OpenAI` provider、`https://apexapi.roixw.com/v1`、responses API、`gpt-5.5` model/review_model、模型目录 URL、自定义 header 和用户指定功能开关。密钥仅在该 root 私有配置，不写入 Git、日志和 MCP。
+
+验证限制：配置可被普通 `codex exec` 读取并显示正确模型/provider，但当前 CLI 忽略三个旧字段 `disable_response_storage`、顶层 `network_access`、`windows_wsl_setup_acknowledged`；严格配置检查拒绝这些字段，不能声称它们生效。保留用户原始配置，未降低 Codex 沙箱默认值。
+
+在服务器独立空临时目录执行无工具、仅回复 OK 的 ephemeral smoke：CLI 返回 429 Too Many Requests，退出码 1。直接请求该网关 `/responses` 返回 502 `Upstream access forbidden, please contact administrator`；`/models` 200 但未列出 `gpt-5.5`，CLI 也报告缺少模型 metadata。CLI 安装、PATH 和配置已完成，模型回答仍受第三方上游限制，待接口方开通/恢复；没有擅自替换用户指定模型。

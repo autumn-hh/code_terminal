@@ -1099,12 +1099,13 @@ textarea {
 }
 
 .project-picker-panel {
-  display: grid;
-  grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   width: min(720px, 100%);
+  height: min(760px, calc(var(--app-viewport-height, 100vh) - 48px));
   max-height: min(760px, calc(var(--app-viewport-height, 100vh) - 48px));
-  min-height: 520px;
+  min-height: 0;
   overflow: hidden;
   padding: 16px;
   color: var(--terminal-fg, #d8e1e8);
@@ -1112,6 +1113,22 @@ textarea {
   border: 1px solid color-mix(in srgb, var(--terminal-accent, #8ab4ff) 24%, var(--terminal-border, #24313a));
   border-radius: 8px;
   box-shadow: 0 28px 70px color-mix(in srgb, #000000 46%, transparent);
+}
+
+.project-picker-panel > :not(.project-picker-body),
+.project-picker-body > :not(.project-picker-list) {
+  flex-shrink: 0;
+}
+
+/* Keep the footer outside both scroll areas, even with a software keyboard. */
+.project-picker-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .project-picker-header,
@@ -1231,11 +1248,13 @@ textarea {
 
 .project-picker-toolbar {
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
 
 .project-picker-error {
+  overflow-wrap: anywhere;
   min-height: 34px;
   padding: 9px 11px;
   color: #ffd7d9;
@@ -1260,10 +1279,13 @@ textarea {
 
 .project-picker-list {
   display: flex;
+  flex: 1 1 180px;
   flex-direction: column;
   gap: 6px;
-  min-height: 0;
+  min-height: 80px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 2px 2px 8px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 24%, transparent) transparent;
@@ -1286,6 +1308,7 @@ textarea {
 
 .project-picker-entry {
   display: grid;
+  flex-shrink: 0;
   grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
@@ -1306,6 +1329,12 @@ textarea {
 .project-picker-entry:hover {
   background: color-mix(in srgb, var(--terminal-fg, #d8e1e8) 10%, transparent);
   border-color: color-mix(in srgb, var(--terminal-accent, #8ab4ff) 28%, var(--terminal-border, #24313a));
+}
+
+.project-picker-panel button:focus-visible,
+.project-picker-panel input:focus-visible {
+  outline: 2px solid var(--terminal-accent, #8ab4ff);
+  outline-offset: -2px;
 }
 
 .project-picker-entry svg {
@@ -2951,7 +2980,7 @@ textarea {
     height: var(--app-viewport-height, 100vh);
     max-height: none;
     min-height: 0;
-    padding: 13px 10px 10px;
+    padding: 13px 10px max(10px, env(safe-area-inset-bottom));
     border-width: 0;
     border-radius: 0;
   }
@@ -2970,9 +2999,23 @@ textarea {
     font-size: 12px;
   }
 
+  .project-picker-panel button {
+    min-height: 44px;
+  }
+
+  .project-picker-icon-button {
+    width: 44px;
+  }
+
+  .project-picker-path-form input,
+  .project-picker-create-form input {
+    height: 44px;
+    font-size: 16px;
+  }
+
   .project-picker-toolbar {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .project-picker-toolbar .project-picker-button {
@@ -3422,6 +3465,61 @@ textarea {
 
 /* Wider touch screens can show labels and a bounded settings panel. */
 @media (min-width: 721px) and (pointer: coarse) {
+  .project-picker-shell {
+    padding: 24px;
+  }
+
+  .project-picker-panel {
+    width: min(760px, 100%);
+    height: min(800px, calc(var(--app-viewport-height, 100vh) - 48px));
+    padding: 20px;
+    gap: 16px;
+    border-width: 1px;
+    border-radius: 16px;
+  }
+
+  .project-picker-header h2 {
+    font-size: 22px;
+  }
+
+  .project-picker-path-form,
+  .project-picker-create-form {
+    grid-template-columns: minmax(0, 1fr) 100px;
+  }
+
+  .project-picker-toolbar {
+    display: flex;
+  }
+
+  .project-picker-toolbar .project-picker-button {
+    width: auto;
+  }
+
+  .project-picker-button {
+    padding: 0 16px;
+    font-size: 14px;
+  }
+
+  .project-picker-entry {
+    min-height: 64px;
+    padding: 12px;
+  }
+
+  .project-picker-entry strong {
+    font-size: 15px;
+    line-height: 1.3;
+  }
+
+  .project-picker-entry small {
+    display: block;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .project-picker-footer {
+    grid-template-columns: 120px minmax(180px, 240px);
+  }
+
   .workspace-bar {
     min-height: 52px;
     padding: 0 12px;
