@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-10-26"
+updated: "2026-10-28"
 
 project:
   name: "Code Terminal"
@@ -43,6 +43,29 @@ deployment:
     - "If SSH credentials or server access block deployment, report the exact local commit and public server asset hashes instead of marking the server as synced."
     - "Never store or print server passwords, tokens, certificates, or .env contents while syncing versions."
   phone_server:
+    host: "8.148.225.35"
+    public_url: "http://8.148.225.35:8787/"
+    ssh_user: "root"
+    app_dir: "/opt/code-terminal"
+    dist_dir: "/opt/code-terminal/dist"
+    service: "code-terminal.service"
+    service_user: "code-terminal"
+    env_file: "/etc/code-terminal.env"
+    state_file: "/opt/code-terminal-state/workbench-state.json"
+    workspace_dir: "/opt/code-terminal-state/workspaces"
+    listen_addr: "0.0.0.0:8787"
+    application_revision: "0b2a374dcb0e660b8feb8a433c1671b6c84c3308"
+    credential_store: "Local Windows Credential Manager; never copy secret values into this file."
+    ssh_credential_entry: "codex:ssh:8.148.225.35:root"
+    web_credential_entry: "code-terminal:http:8.148.225.35:8787"
+    access: "Token required. User explicitly accepted public HTTP on 2026-10-28; traffic is not encrypted."
+    boundaries:
+      - "Separate product from wealth-product-tracker on the same host. Do not reuse its web credentials."
+      - "Do not modify Dify, FileSync, shared reverse proxies, certificates, or the wealth containers."
+      - "Dedicated unprivileged service account; writes limited to state/workspaces and private temporary files."
+      - "No Docker socket or sudo access. Root-owned application files remain read-only to the service."
+    deployment_record: "docs/deployment-20261028.md"
+  previous_phone_server:
     host: "8.130.142.159"
     public_url: "http://8.130.142.159:8787/"
     ssh_user: "root"
@@ -88,7 +111,7 @@ validation:
     - "systemctl is-active code-terminal.service"
     - "ss -ltnp | grep ':8787'"
     - "curl -fsS http://127.0.0.1:8787/ | sed -n '1,20p'"
-    - "curl.exe -fsS -I http://8.130.142.159:8787/"
+    - "curl.exe -fsS -I http://8.148.225.35:8787/"
 
 ux_memory:
   mobile:
