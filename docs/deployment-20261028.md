@@ -1,5 +1,17 @@
 # Code Terminal 部署记录
 
+## 2026-10-30 Web 访问故障恢复
+
+01:47 排查发现首页请求超过 12 秒无响应，但 8787 端口可连接、未鉴权 API 仍能返回 401，systemd 一直显示 active。日志从 10 月 29 日 20:28 起出现 `failed to spawn thread`、`Resource temporarily unavailable`（EAGAIN）。服务 cgroup 的 `TasksCurrent=255`、`TasksMax=256`，`pids.events` 记录 278 次触顶；该额度同时包含 Web 服务、终端 Shell、Codex 与子进程的线程。当时共 29 个进程，包含 8 个 Codex 进程，内存与磁盘仍有余量。
+
+执行 `systemctl set-property code-terminal.service TasksMax=1024` 在线提高并持久化额度，生成 `/etc/systemd/system.control/code-terminal.service.d/50-TasksMax.conf`。没有重启服务、停止用户终端或改动其他应用；MainPID 保持 2684906，启动时间保持 2026-10-29 14:29:26。复查 TasksCurrent=259、TasksMax=1024，恢复后日志无新增异常。
+
+实际验证：首页连续三次 200（0.17–0.25 秒）；带凭据的 `GET /api/load_state` 200，`POST /api/events_ticket` 200 且 `terminalInput=true`。公网 Playwright 独立测试终端执行 `seq 1 60`，确认真实 PTY 输入输出、手机/折叠屏布局和设置切换正常，页面脚本错误 0，测试终端已停止。用户同时确认访问恢复。
+
+后续部署保留 1024 的有界任务额度。`active` 和端口监听不等于网页健康；复发时同时检查首页响应、鉴权 API、TasksCurrent/TasksMax 与 `pids.events`。本次未修改应用代码或强制清理已有 Codex/MCP 进程；长期异常增长仍需依据进程树另行定位。
+
+## 2026-10-28 初始部署
+
 2026-10-28，用户授权将本机 `D:/freelife/opencode-workbench` 独立部署到 `8.148.225.35`，并明确接受公网 HTTP。应用版本为 `0b2a374dcb0e660b8feb8a433c1671b6c84c3308`；文档提交不改变应用产物。
 
 - 地址：`http://8.148.225.35:8787/`，须携带本产品访问令牌。HTTP 不加密令牌和终端内容。
