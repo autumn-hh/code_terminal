@@ -177,11 +177,14 @@ function formatRelativeTime(value: number) {
 }
 
 function getStableViewportHeight() {
-  const heights = [window.innerHeight, window.visualViewport?.height, document.documentElement.clientHeight]
+  // Pinch zoom changes the visual viewport too; it must not resize the terminal.
+  const viewport = window.visualViewport;
+  const visualHeight = !viewport || Math.abs(viewport.scale - 1) < 0.05 ? viewport?.height : undefined;
+  const heights = [window.innerHeight, visualHeight, document.documentElement.clientHeight]
     .filter((height): height is number => typeof height === "number" && Number.isFinite(height) && height > 0);
 
   if (heights.length === 0) return null;
-  return Math.max(320, Math.floor(Math.min(...heights)));
+  return Math.max(1, Math.floor(Math.min(...heights)));
 }
 
 function directoryErrorMessage(error: unknown, action: string) {
@@ -352,11 +355,27 @@ export function App() {
     let resizeFrame: number | null = null;
     const root = document.documentElement;
     const visualViewport = window.visualViewport;
+    const touchViewport = window.matchMedia("(pointer: coarse), (max-width: 480px)");
+    let viewportWidth = window.innerWidth;
+    let expandedHeight = Math.max(window.innerHeight, root.clientHeight);
 
     const applyViewportHeight = () => {
       const height = getStableViewportHeight();
       if (height) {
         root.style.setProperty("--app-viewport-height", `${height}px`);
+        // Track each orientation separately, including browsers that resize the
+        // layout viewport. Browser chrome changes are smaller than this threshold.
+        if (viewportWidth !== window.innerWidth) {
+          viewportWidth = window.innerWidth;
+          expandedHeight = Math.max(window.innerHeight, root.clientHeight);
+        }
+        const unzoomed = !visualViewport || Math.abs(visualViewport.scale - 1) < 0.05;
+        if (unzoomed) expandedHeight = Math.max(expandedHeight, window.innerHeight, height);
+        const active = document.activeElement;
+        const terminalFocused = !!active?.closest(".terminal-pane")
+          || (active === document.body && root.classList.contains("touch-keyboard-open"));
+        root.classList.toggle("touch-keyboard-open", touchViewport.matches && unzoomed
+          && terminalFocused && expandedHeight - height > Math.max(120, expandedHeight * 0.2));
       }
     };
 
@@ -375,6 +394,8 @@ export function App() {
     window.addEventListener("resize", scheduleViewportHeight);
     window.addEventListener("orientationchange", scheduleViewportHeight);
     document.addEventListener("fullscreenchange", scheduleViewportHeight);
+    document.addEventListener("focusin", scheduleViewportHeight);
+    touchViewport.addEventListener("change", scheduleViewportHeight);
     visualViewport?.addEventListener("resize", scheduleViewportHeight);
     visualViewport?.addEventListener("scroll", scheduleViewportHeight);
 
@@ -385,9 +406,12 @@ export function App() {
       window.removeEventListener("resize", scheduleViewportHeight);
       window.removeEventListener("orientationchange", scheduleViewportHeight);
       document.removeEventListener("fullscreenchange", scheduleViewportHeight);
+      document.removeEventListener("focusin", scheduleViewportHeight);
+      touchViewport.removeEventListener("change", scheduleViewportHeight);
       visualViewport?.removeEventListener("resize", scheduleViewportHeight);
       visualViewport?.removeEventListener("scroll", scheduleViewportHeight);
       root.style.removeProperty("--app-viewport-height");
+      root.classList.remove("touch-keyboard-open");
     };
   }, []);
 

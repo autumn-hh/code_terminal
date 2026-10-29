@@ -1448,7 +1448,7 @@ export function TerminalPane({
         </div>
         {uploadStatus && <div className="terminal-upload-status" role="status" aria-live="polite">{uploadStatus}</div>}
         {draftAttachments.length > 0 && <>
-          <div className="terminal-upload-status" role="status" aria-live="polite">
+          <div className="terminal-upload-status terminal-attachment-count" role="status" aria-live="polite">
             待发送 {draftAttachments.length} 个附件
           </div>
           <ul className="terminal-draft-attachments" aria-label="待发送附件">
@@ -1514,6 +1514,12 @@ export function TerminalPane({
             <SendHorizontal size={16} />
           </button>
           <div className="terminal-composer-keys" role="group" aria-label="终端快捷键">
+            <button type="button" className="terminal-keyboard-attachment"
+              aria-label="添加文件或图片" title="选择文件或图片，单个不超过 25 MB" disabled={isUploading}
+              onPointerDown={event => event.preventDefault()}
+              onClick={() => attachmentInputRef.current?.click()}>
+              <Paperclip size={16} aria-hidden="true" />
+            </button>
             {[
               ["Tab", "\t", "补全命令"],
               ["Esc", "\x1b", "退出或取消"],

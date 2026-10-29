@@ -163,7 +163,8 @@ async (page) => {
       const form=el.closest('form').getBoundingClientRect();
       return {visible:rect.height>=44 && rect.bottom<=innerHeight && rect.left>=0 && rect.right<=innerWidth,
         insideForm:rect.left>=form.left && rect.right<=form.right && rect.bottom<=form.bottom,
-        targets:[...el.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44),
+        targets:[...el.querySelectorAll('button')].filter(button=>getComputedStyle(button).display!=='none')
+          .every(button=>button.getBoundingClientRect().height>=44),
         overflow:document.documentElement.scrollWidth>innerWidth};
     });
     check(bounds.visible && bounds.insideForm && bounds.targets && !bounds.overflow,'Foldable bounds failed: '+JSON.stringify(bounds));

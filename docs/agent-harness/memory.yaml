@@ -109,6 +109,7 @@ validation:
     - "npm run build"
     - "npm run bundle:mac"
   mobile_ui:
+    keyboard_regression: "Run tests/mobileKeyboard.browser.js through playwright-cli against a dedicated local full server. Simulate visualViewport-only shrinking and layout viewport resizing; assert usable TUI height with empty/long input and attachments at visible heights 420/360/280, keyboard-close restoration, 22px text, touch widths 320–1024, and desktop/zoom exclusion. Chromium simulation is not Android hardware IME validation."
     viewports:
       - "390x844"
       - "360x740"

@@ -3516,7 +3516,7 @@ textarea {
   .terminal-composer-input {
     min-width: 0;
     min-height: 44px;
-    max-height: min(120px, 25dvh);
+    max-height: min(120px, calc(var(--app-viewport-height) * 0.25));
     padding: 10px 8px;
     font-size: max(16px, var(--terminal-font-size, 14px));
     line-height: 1.4;
@@ -3793,4 +3793,81 @@ textarea {
 @media (pointer: coarse), (max-width: 480px) {
   .terminal-quick-scroll-grip { width: 32px; }
   .terminal-quick-scroll-grip::before { width: 8px; }
+}
+
+/* Android can shrink only visualViewport while vh/dvh and media queries stay
+   unchanged. Temporary keyboard layout never changes the saved chrome preference. */
+.terminal-composer-keys .terminal-keyboard-attachment {
+  display: none;
+}
+
+.touch-keyboard-open .shell .workspace-bar,
+.touch-keyboard-open .shell .terminal-bar,
+.touch-keyboard-open .shell .terminal-cell-header,
+.touch-keyboard-open .shell .terminal-session-toolbar,
+.touch-keyboard-open .shell .mobile-chrome-restore-button {
+  display: none;
+}
+
+.touch-keyboard-open .shell .terminal-pane {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.touch-keyboard-open .shell .terminal-surface {
+  gap: 0;
+  padding: 0;
+}
+
+.touch-keyboard-open .shell .terminal-cell {
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+}
+
+.touch-keyboard-open .terminal-host .xterm {
+  padding: 4px 5px;
+}
+
+.touch-keyboard-open .terminal-composer-area {
+  padding-bottom: 0;
+}
+
+.touch-keyboard-open .terminal-composer-area.expanded .terminal-composer-heading {
+  display: none;
+}
+
+.touch-keyboard-open .terminal-composer-keys .terminal-keyboard-attachment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.touch-keyboard-open .terminal-composer-input {
+  max-height: clamp(44px, calc(var(--app-viewport-height) * 0.15), 72px);
+}
+
+.touch-keyboard-open .terminal-upload-status {
+  max-height: 1.4em;
+}
+
+/* Keep the count announced without spending an extra line on repeated status. */
+.touch-keyboard-open .terminal-attachment-count {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.touch-keyboard-open .terminal-draft-attachments {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+}
+
+.touch-keyboard-open .terminal-draft-attachment {
+  flex: 0 0 auto;
 }
