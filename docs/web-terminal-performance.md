@@ -51,4 +51,10 @@ window.codeTerminalPerf.enable(false);
 
 该对照只代表本次路径和负载，SSH 隧道改变了网络路径，不能与先前公网直连 168ms 数字直接比较，也不是物理 exe 的测速。TUI 自身可能合并重绘，无法保证 60fps。手机/平板是 Chromium 触控模拟，未替代真机 Safari 测试。
 
-Windows exe 与 Linux 服务端已构建。新版预发布包位于 `/opt/code-terminal/ws-release-20261029/`；生产已有活动 Codex 会话，切换需要重启，仅在用户同意后执行。当前文档不表示已正式发布。
+2026-10-29 13:36（Asia/Shanghai），用户明确允许中断活动会话后，已将 `320e5a9` 的前后端正式发布并重启 `code-terminal.service`。服务 active/running、自动重启次数 0；公网静态文件逐个 SHA-256 校验一致，事件票据声明 `terminalInput: true`。前端为 `index-qlGXyxBa.js` / `index-Bw5xPw5Q.css`。回退副本位于 `/opt/code-terminal/backup-ws-20261029-133642/`，预发布包仍保留。
+
+发布后公网直连桌面 1440×960、真实 Codex `/status`，16 次单轮的文字变化后帧中位数 67.0ms、p95 83.4ms；30 次连续滚轮全部走 WebSocket、HTTP 写入 0，文字更新间隔中位数 50.0ms、p95 82.9ms，最后一次更新在松手后 166.6ms。页面错误和 >50ms 主线程长任务均为 0。客户端队列 p95 0.1ms，滑块同步 p95 0.2ms。
+
+`python .playwright-cli/scroll-sync-public.py` 公网真实 Codex 双向滚轮与拖动同步通过，页面错误 0；新截图已回读。测试创建的 PTY 均已停止。匿名 API 401、原凭据 API 200，已有认证继续有效。本轮仅更新本产品二进制和前端，保留状态与认证配置。
+
+此前公网旧版单轮中位数 168.1ms、p95 383.1ms，连续更新间隔中位数 82.7ms。本次结果明显改善，但两轮并非同时测试，网络情况不同，不能把全部差值归因于代码。公网网络抖动和 TUI 重绘仍会影响尾延迟。报告位于本机未跟踪 `output/playwright/scroll-latency-ws-public.json`。Windows exe 已随应用构建更新。
