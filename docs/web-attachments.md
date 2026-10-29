@@ -35,3 +35,5 @@
 14:40 静态重新部署，前端 `index-zoWqPe86.js` / `index-DkMuwnPo.css`，6 个公网文件 hash 一致，服务 active、匿名 401/授权 200；未重启后端。`python .playwright-cli/attachment-removal-public.py` 实际上传两文件后，指定移除、保留其他附件与文字、清空无残留通过，页面错误 0；独立测试文件/会话已清理。
 
 默认 release exe 正在运行而无法覆盖，保留用户窗口，使用 `$env:CARGO_TARGET_DIR="D:/freelife/opencode-workbench/src-tauri/target-bundle"; npm run build` 构建成功。最新文件位于 `src-tauri/target-bundle/release/code-terminal.exe`。
+
+随后按用户要求恢复默认构建位置：`npm run build` 输出 `src-tauri/target/release/code-terminal.exe`。额外的 `target-bundle`、`target-codex-build`、`target-codex-debug`、`target-dock-build`、`target-linux` 均为可重建产物，清理后仅保留默认 `target`；Linux 发布需要时重新构建。

@@ -95,6 +95,7 @@ deployment:
     secret_policy: "Never store the root password or CODE_TERMINAL_TOKEN in repo files, commits, harness memory, or final answers."
 
 validation:
+  build_directory_policy: "Use the default src-tauri/target for builds and src-tauri/target/release/code-terminal.exe for Windows delivery. User requested removing extra target-* directories on 2026-10-29; avoid leaving parallel build caches. Linux builds may be recreated when needed."
   local_testing:
     - "When the user asks to start local testing, run the full backend server with npm run server instead of vite preview, because the phone/Web UI needs the Rust event/terminal API routes."
     - "Default local full-stack URL is http://127.0.0.1:8787/ and does not require a token."
