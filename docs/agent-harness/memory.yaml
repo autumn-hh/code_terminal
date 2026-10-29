@@ -58,6 +58,8 @@ deployment:
     codex_binary: "/usr/local/bin/codex"
     codex_version: "0.165.0"
     codex_config: "/root/.codex/config.toml (root 0600; never copy its contents into project memory)"
+    codex_execution_defaults: "User explicitly requested YOLO on 2026-10-29, matching local config: approval_policy=never and sandbox_mode=danger-full-access at user-config root. Verified with app-server config/read and fresh ephemeral thread/start without CLI permission overrides. Existing Codex processes must restart to reload defaults; do not restart the terminal service or kill user sessions. Preserve other model/provider/credential settings and systemd boundaries."
+    codex_mobile_rules: "/root/.codex/AGENTS.md has code-terminal-mobile-execution block: execute authorized scripts/checks on the same server and inspect results instead of asking the phone user to run SSH; report genuine tool/login/permission blockers; preserve user edits, credentials and task scope. Config/rules backups use .before-yolo-<timestamp> with mode 0600."
     codex_provider: "OpenAI; https://apexapi.roixw.com/v1; responses; gpt-5.5 model and review_model"
     listen_addr: "0.0.0.0:8787"
     backend_revision: "320e5a94cbe956e991d4efcfe2e1455348974140"
