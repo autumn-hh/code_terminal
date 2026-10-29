@@ -28,6 +28,13 @@ async (page) => {
   await page.waitForFunction(()=>document.querySelector('form[aria-label="对话输入"]').getAttribute('aria-busy')==='false');
   check((await input.inputValue()).startsWith('typed during upload ')&&(await input.inputValue()).includes('first.txt')&&(await input.inputValue()).includes('second.png'),'Keep draft and all uploaded paths');
   check(writes.length===0,'Upload and pending Enter must not submit');
+  await page.getByRole('button',{name:'辅助输入',exact:true}).click();
+  check(await page.getByRole('listitem').filter({has:page.locator('.terminal-draft-attachment-name')}).count()===2,'Successful uploads must have named removable entries');
+  await page.getByRole('button',{name:'移除附件：second.png',exact:true}).click();
+  check(!(await input.inputValue()).includes('second.png')&&(await input.inputValue()).includes('first.txt')&&(await input.inputValue()).startsWith('typed during upload '),'Remove only the chosen path, keep text and other attachment');
+  check(await page.getByRole('button',{name:'移除附件：second.png',exact:true}).count()===0,'Removed attachment must leave the list');
+  check(writes.length===0,'Removing must never send terminal input');
+  await page.getByRole('button',{name:'辅助输入',exact:true}).click();
   fail=true;await picker.setInputFiles({name:'retry.txt',mimeType:'text/plain',buffer:Buffer.from('retry')});
   await page.waitForFunction(()=>document.querySelector('.terminal-upload-status')?.textContent.includes('上传失败'));
   check((await input.inputValue()).includes('first.txt'),'Failure preserves successful attachments');
@@ -43,6 +50,18 @@ async (page) => {
   await page.waitForFunction(()=>document.querySelector('.terminal-composer-input').value.includes('dropped.txt'));
   check(writes.length===0,'Paste and drop must only populate draft');
   await input.press('Enter');await page.waitForTimeout(300);check(writes.join('').includes('dropped.txt'),'Explicit Enter sends uploaded paths');
+  check(!writes.join('').includes('second.png'),'Removed file must not be submitted');
+  check(await page.locator('.terminal-draft-attachment').count()===0&&await page.locator('.terminal-upload-status').count()===0,'Send clears the attachment list and count');
+  for(const action of ['clear','Escape','Tab','remove']){
+    await picker.setInputFiles({name:action+'.txt',mimeType:'text/plain',buffer:Buffer.from('draft')});
+    const remove=page.getByRole('button',{name:'移除附件：'+action+'.txt',exact:true});await remove.waitFor();
+    if(action==='clear')await input.fill('');
+    else if(action==='remove')await remove.click();
+    else if(action==='Tab')await page.getByRole('button',{name:'补全命令',exact:true}).click();
+    else await input.press(action);
+    check(await page.locator('.terminal-draft-attachment').count()===0&&await page.locator('.terminal-upload-status').count()===0,action+' clears stale attachments and status');
+    check(!(await input.inputValue()).trim(),action+' leaves no attachment path');
+  }
   delay=800;
   for(const [width,height,touch] of [[360,740,true],[390,844,true],[884,1104,true],[1180,820,true],[1280,820,false]]){
     await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:touch,maxTouchPoints:5});await page.setViewportSize({width,height});
@@ -52,6 +71,13 @@ async (page) => {
     check(bounds.clear&&bounds.inside&&bounds.page&&(!touch||bounds.height>=44),'Attachment boundaries: '+JSON.stringify(bounds));
     await page.screenshot({path:'output/playwright/attachments-'+width+'x'+height+'.png'});
     await page.waitForFunction(()=>document.querySelector('form[aria-label="对话输入"]').getAttribute('aria-busy')==='false');
+    const fileBounds=await page.evaluate(()=>Array.from(document.querySelectorAll('.terminal-draft-attachment')).every(el=>{
+      const row=el.getBoundingClientRect(),text=el.querySelector('span').getBoundingClientRect(),button=el.querySelector('button').getBoundingClientRect();
+      return row.right<=innerWidth&&text.right<=button.left&&button.right<=row.right&&el.scrollWidth<=el.clientWidth;
+    }));
+    check(fileBounds,'Long attachment names must not overlap the remove control');
+    await page.screenshot({path:'output/playwright/attachment-removal-'+width+'x'+height+'.png'});
+    await input.fill('');
   }
-  return {picker:true,multiple:true,paste:true,drop:true,draftPreserved:true,noAutoSubmit:true,retry:true,sizeLimit:true,responsive:5};
+  return {picker:true,multiple:true,paste:true,drop:true,draftPreserved:true,noAutoSubmit:true,retry:true,sizeLimit:true,remove:true,clearEscapeTab:true,sendClears:true,responsive:5};
 }

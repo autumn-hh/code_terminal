@@ -2,6 +2,8 @@
 
 底部「添加文件」在辅助输入收起时也可见。文件选择、多选、拖入输入框、粘贴图片统一上传；每次最多 10 个文件，单个上限 25 MiB。上传过程中保留输入，禁用发送，完成后添加路径，由用户确认发送。失败保留已有草稿及成功路径，可重新选择同一文件重试。
 
+待发送附件显示为文件名条目，右侧「×」可从本次消息移除，并同步删除草稿中的路径，保留其他附件和文字。计数根据草稿实际保留的路径计算；手动清空、Esc、发送或 Tab 转交后同步清除，不再保留过期的“已添加”提示。收起辅助输入仍可移除附件，长文件名省略显示并保留完整可访问名称。此操作只移除本次消息引用，不删除服务器文件或已经进入 TUI 的附件。
+
 直接在终端粘贴图片只向发起粘贴的原会话写入路径，不自动回车。无需引号的安全路径保持原样，Codex 0.165.0 可据此生成 `[Image #1]`；无条件加引号会变成普通文字。其他 TUI 是否把路径识别为附件由该程序决定。若手机浏览器没有向 paste 事件提供图片数据，使用文件选择器。
 
 ## 实现与边界
@@ -25,3 +27,11 @@
 14:29:26 CST 已更新正式前后端并重启 `code-terminal.service`，active/running、自动重启次数 0。前端 `index-EhcJg6FX.js` / `index-BadDtljx.css`，公网文件 hash 与本地一致；保留原状态与凭据。回退备份 `/opt/code-terminal/backup-attachments-20261029-142925`。独立 Linux 预发布验证大文件和权限通过。
 
 `python .playwright-cli/attachments-public.py` 公网实际上传 3 MiB、SHA-256 对照、PTY 读取、HTTP 页 Ctrl+V、真实 Codex 图片附件均通过；页面错误 0、匿名 401。首轮 Codex 标记等待超时，重新打开独立会话复测通过；未将上传成功单独视作图片识别成功。测试创建的会话和上传文件已清理。模型视觉理解和真机移动剪贴板未测试。
+
+## 待发送附件移除修复
+
+同日补充可移除文件名条目，修复清空输入后仍显示已添加的状态。`tests/terminalAttachments.browser.js` 新增移除指定文件并保留其他内容、收起后移除、移除后不发送该路径、手动清空/Esc/Tab/发送清除条目与计数，并在五种桌面/触屏尺寸检查长文件名和删除按钮边界。40 项前端单测、上述附件回归及 `tests/mobileInteractions.browser.js` 均通过，新截图已回读。
+
+14:40 静态重新部署，前端 `index-zoWqPe86.js` / `index-DkMuwnPo.css`，6 个公网文件 hash 一致，服务 active、匿名 401/授权 200；未重启后端。`python .playwright-cli/attachment-removal-public.py` 实际上传两文件后，指定移除、保留其他附件与文字、清空无残留通过，页面错误 0；独立测试文件/会话已清理。
+
+默认 release exe 正在运行而无法覆盖，保留用户窗口，使用 `$env:CARGO_TARGET_DIR="D:/freelife/opencode-workbench/src-tauri/target-bundle"; npm run build` 构建成功。最新文件位于 `src-tauri/target-bundle/release/code-terminal.exe`。

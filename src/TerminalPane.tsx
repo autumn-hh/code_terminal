@@ -461,6 +461,16 @@ export function TerminalPane({
   const uploadControllerRef = useRef<AbortController | null>(null);
   const [uploadStatus, setUploadStatus] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadedAttachments, setUploadedAttachments] = useState<{ name: string; path: string; text: string }[]>([]);
+  const draftAttachments = uploadedAttachments.filter(file => composerInputValue.includes(file.text));
+  useEffect(() => {
+    // The draft is authoritative, including keyboard deletion, Escape and Tab.
+    setUploadedAttachments(current => {
+      const remaining = current.filter(file => composerInputValue.includes(file.text));
+      return remaining.length === current.length ? current : remaining;
+    });
+    if (!composerInputValue.trim() && !uploadControllerRef.current) setUploadStatus('');
+  }, [composerInputValue]);
   useEffect(() => () => uploadControllerRef.current?.abort(), []);
   const [isComposerExpanded, setIsComposerExpanded] = useState(() => window.matchMedia("(pointer: coarse)").matches);
   const renderColumnWeights = useMemo(
@@ -688,6 +698,13 @@ export function TerminalPane({
     void addAttachments(files);
   }
 
+  function removeDraftAttachment(path: string) {
+    const file = uploadedAttachments.find(item => item.path === path);
+    if (!file) return;
+    setComposerInputValue(current => current.split(file.text + ' ').join('').split(file.text).join(''));
+    setUploadedAttachments(current => current.filter(item => item.path !== path));
+  }
+
   async function addAttachments(files: File[]) {
     if (!files.length || uploadControllerRef.current) return;
     if (files.length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
@@ -704,10 +721,12 @@ export function TerminalPane({
         setUploadStatus(label);
         const path = await uploadAttachment(file, percentage => setUploadStatus(`${label} · ${percentage}%`), controller.signal);
         if (controller.signal.aborted) return;
+        const text = formatPastedImagePath(path);
+        setUploadedAttachments(current => [...current, { name: file.name, path, text }]);
         // Keep text typed while the network request was in flight; never submit automatically.
-        setComposerInputValue(current => current + (current && !/\s$/.test(current) ? ' ' : '') + formatPastedImagePath(path) + ' ');
+        setComposerInputValue(current => current + (current && !/\s$/.test(current) ? ' ' : '') + text + ' ');
       }
-      setUploadStatus(`已添加 ${files.length} 个文件，可补充说明后发送`);
+      setUploadStatus('');
     } catch (error) {
       if (!controller.signal.aborted) {
         setUploadStatus('上传失败，已添加的文件和输入内容已保留');
@@ -1428,6 +1447,18 @@ export function TerminalPane({
           onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addAttachments(files); }} />
         </div>
         {uploadStatus && <div className="terminal-upload-status" role="status" aria-live="polite">{uploadStatus}</div>}
+        {draftAttachments.length > 0 && <>
+          <div className="terminal-upload-status" role="status" aria-live="polite">
+            待发送 {draftAttachments.length} 个附件
+          </div>
+          <ul className="terminal-draft-attachments" aria-label="待发送附件">
+            {draftAttachments.map(file => <li className="terminal-draft-attachment" key={file.path}>
+              <span className="terminal-draft-attachment-name" title={file.name}>{file.name}</span>
+              <button type="button" aria-label={'移除附件：' + file.name} title="从本次消息移除"
+                onClick={() => removeDraftAttachment(file.path)}><X size={16} aria-hidden="true" /></button>
+            </li>)}
+          </ul>
+        </>}
         <form
           aria-label="对话输入"
           className="terminal-composer"
