@@ -3800,6 +3800,58 @@ textarea {
   display: none;
 }
 
+.settings-session-lifecycle {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--terminal-border);
+}
+
+.settings-background-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-background-toggle input { width: 18px; height: 18px; flex: 0 0 auto; }
+.settings-session-lifecycle p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--terminal-muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-background-sessions { padding: 0; margin: 0; list-style: none; }
+.settings-background-sessions li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-background-session-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.settings-background-session-name small { display: block; color: var(--terminal-muted); }
+.settings-background-sessions button {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--terminal-fg);
+  background: color-mix(in srgb, var(--terminal-fg) 7%, transparent);
+  cursor: pointer;
+}
+.settings-background-sessions button:disabled { opacity: 0.5; cursor: wait; }
+
 /* One navigation row on phones, unfolded devices and tablets. */
 @media (pointer: coarse), (max-width: 480px) {
   .workspace-bar,

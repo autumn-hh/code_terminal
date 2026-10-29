@@ -51,6 +51,7 @@ deployment:
     service: "code-terminal.service"
     service_user: "root"
     tasks_max: 1024
+    terminal_lifecycle: "Web clients negotiate sessionLease; default ordinary sessions expire 600s after last heartbeat, background keepAlive requires explicit opt-in and can be reopened/stopped in settings. Heartbeat20s, max32 terminals (background included), cgroup task reserve before spawning, bounded helper IO/cleanup. Preserve TasksMax1024. See docs/web-session-lifecycle.md and tests/terminalLifecycle.py; ordinary page reload creates a new terminal, background attach restores recent64KiB output with sequence reconciliation. Never kill unrelated/shared Codex daemons globally."
     tasks_limit_policy: "The service cgroup includes Codex, terminal shells, MCP children and all threads. On 2026-10-30, TasksCurrent=255/TasksMax=256 caused failed-to-spawn-thread EAGAIN panics and HTTP homepage timeouts while systemd stayed active. Fixed live with systemctl set-property code-terminal.service TasksMax=1024; persistent drop-in /etc/systemd/system.control/code-terminal.service.d/50-TasksMax.conf. Preserve this bounded limit on redeploy. For recurrence inspect TasksCurrent/TasksMax and cgroup pids.events before restarting; avoid killing user sessions."
     runtime_policy: "User explicitly requests root as the default for this Code Terminal deployment (2026-10-29); do not silently restore an unprivileged account. Other product boundaries still apply."
     env_file: "/etc/code-terminal.env"

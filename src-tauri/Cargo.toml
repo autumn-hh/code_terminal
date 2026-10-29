@@ -40,3 +40,6 @@ uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-version = "0.1.7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

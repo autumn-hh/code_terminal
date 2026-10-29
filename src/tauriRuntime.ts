@@ -24,6 +24,12 @@ let serverToken: string | null | undefined;
 let serverEventsSocket: WebSocket | null = null;
 let serverEventsReady: Promise<void> | null = null;
 let serverSocketInput: TerminalSocketInput | null = null;
+let serverSessionLease = false;
+const serverPageSessions = new Set<string>();
+let serverHeartbeatTimer: number | null = null;
+let serverHeartbeatPending = false;
+let serverHeartbeatWakeInstalled = false;
+let serverSocketHasOpened = false;
 const serverEventHandlers = new Map<string, Set<EventCallback<unknown>>>();
 const serverInputQueue = new TerminalInputQueue(async (sessionId, data) => {
   await ensureServerEventsSocket();
@@ -197,26 +203,115 @@ async function serverInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   const init: RequestInit = {
     headers: serverHeaders(),
   };
-  const isGet = cmd === "load_state" || cmd === "initial_project_id";
+  const requestArgs = cmd === "terminal_start" && serverSessionLease ? { ...args, lease: true } : args;
+  if (cmd === "terminal_stop" && args && "sessionId" in args && typeof args.sessionId === "string") {
+    // Even if the stop request fails, a closed page tab must not keep renewing it.
+    forgetServerSession(args.sessionId);
+  }
+  const isGet = cmd === "load_state" || cmd === "initial_project_id" || cmd === "terminal_sessions";
   if (!isGet) {
     init.method = "POST";
-    init.body = JSON.stringify(args ?? {});
+    init.body = JSON.stringify(requestArgs ?? {});
   }
 
-  const response = await fetch(serverApiUrl(cmd), init);
-  if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
-    throw new Error(message || response.statusText);
-  }
-  if (response.status === 204) {
-    return undefined as T;
-  }
+  const controller = ["terminal_attach", "terminal_stop", "terminal_background", "terminal_sessions"].includes(cmd)
+    ? new AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
+  if (controller) init.signal = controller.signal;
+  try {
+    const response = await fetch(serverApiUrl(cmd), init);
+    if (!response.ok) {
+      const message = await response.text().catch(() => response.statusText);
+      throw new Error(message || response.statusText);
+    }
+    if (response.status === 204) {
+      if (cmd === "terminal_stop" && args && "sessionId" in args && typeof args.sessionId === "string") {
+        forgetServerSession(args.sessionId);
+      }
+      return undefined as T;
+    }
 
-  return (await response.json()) as T;
+    const result = await response.json();
+    if ((cmd === "terminal_start" || cmd === "terminal_attach") && typeof result?.sessionId === "string") {
+      serverPageSessions.add(result.sessionId);
+      startServerHeartbeat();
+    }
+    return result as T;
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
+  }
+}
+
+function forgetServerSession(sessionId: string) {
+  serverPageSessions.delete(sessionId);
+  if (serverPageSessions.size === 0 && serverHeartbeatTimer !== null) {
+    window.clearInterval(serverHeartbeatTimer);
+    serverHeartbeatTimer = null;
+  }
+}
+
+export function releaseServerSession(sessionId: string) {
+  forgetServerSession(sessionId);
+}
+
+function dispatchServerEvent(eventName: string, eventPayload: TerminalOutput | TerminalExit) {
+  if (eventName === "terminal-exit") forgetServerSession(eventPayload.sessionId);
+  serverEventHandlers.get(eventName)?.forEach(handler => {
+    handler({ event: eventName, id: 0, payload: eventPayload } as Parameters<typeof handler>[0]);
+  });
+}
+
+async function heartbeatServerSessions() {
+  if (!serverSessionLease || serverHeartbeatPending || serverPageSessions.size === 0) return;
+  serverHeartbeatPending = true;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(serverApiUrl("terminal_heartbeat"), {
+      method: "POST", headers: serverHeaders(), signal: controller.signal,
+      body: JSON.stringify({ sessionIds: [...serverPageSessions] }),
+    });
+    if (!response.ok) return;
+    const result = await response.json() as { missingSessionIds: string[] };
+    for (const sessionId of result.missingSessionIds ?? []) {
+      if (serverPageSessions.has(sessionId)) dispatchServerEvent("terminal-exit", { sessionId });
+    }
+  } catch {
+    // Offline pages expire server-side. Never stop or recreate a session on a transient error.
+  } finally {
+    window.clearTimeout(timeout);
+    serverHeartbeatPending = false;
+  }
+}
+
+function startServerHeartbeat() {
+  if (!serverSessionLease || serverPageSessions.size === 0 || serverHeartbeatTimer !== null) return;
+  if (!serverHeartbeatWakeInstalled) {
+    serverHeartbeatWakeInstalled = true;
+    const resume = () => {
+      if (document.visibilityState === "hidden" || serverPageSessions.size === 0) return;
+      void ensureServerEventsSocket().catch(() => undefined);
+      void heartbeatServerSessions();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("online", resume);
+  }
+  serverHeartbeatTimer = window.setInterval(() => {
+    void ensureServerEventsSocket().catch(() => undefined);
+    void heartbeatServerSessions();
+  }, 20000);
+  void heartbeatServerSessions();
+}
+
+export async function supportsServerSessionLease() {
+  if (!isServerRuntime()) return false;
+  await ensureServerEventsSocket();
+  return serverSessionLease;
 }
 
 function isTerminalEventProducingCommand(command: string) {
-  return command === "terminal_start" || command === "terminal_write";
+  return command === "terminal_start" || command === "terminal_write" || command === "terminal_attach";
 }
 
 function isServerRuntime() {
@@ -247,7 +342,7 @@ async function requestServerEventsTicket() {
     const message = await response.text().catch(() => response.statusText);
     throw new Error(message || response.statusText);
   }
-  return (await response.json()) as { ticket: string | null; terminalInput?: boolean };
+  return (await response.json()) as { ticket: string | null; terminalInput?: boolean; sessionLease?: boolean };
 }
 
 function normalizeServerEventName(type: string) {
@@ -270,7 +365,8 @@ function ensureServerEventsSocket(): Promise<void> {
   }
 
   const ready = (async () => {
-    const { ticket, terminalInput } = await requestServerEventsTicket();
+    const { ticket, terminalInput, sessionLease } = await requestServerEventsTicket();
+    serverSessionLease = sessionLease === true;
     const socket = new WebSocket(serverEventsUrl(ticket));
     const input = terminalInput ? new TerminalSocketInput(socket) : null;
     serverEventsSocket = socket;
@@ -328,9 +424,7 @@ function ensureServerEventsSocket(): Promise<void> {
         payload.payload ?? payload.terminalOutput ?? payload.terminal_output ?? payload.terminalExit ?? payload.terminal_exit;
       if (!eventPayload) return;
 
-      serverEventHandlers.get(eventName)?.forEach((handler) => {
-        handler({ event: eventName, id: 0, payload: eventPayload } as Parameters<typeof handler>[0]);
-      });
+      dispatchServerEvent(eventName, eventPayload);
     });
     socket.addEventListener("close", () => {
       input?.fail();
@@ -345,6 +439,12 @@ function ensureServerEventsSocket(): Promise<void> {
         }, 1200);
       }
     });
+    if (serverSocketHasOpened && serverSessionLease) {
+      for (const sessionId of serverPageSessions) dispatchServerEvent("terminal-reconnect", { sessionId });
+    }
+    serverSocketHasOpened = true;
+    startServerHeartbeat();
+    void heartbeatServerSessions();
   })();
 
   serverEventsReady = ready;
@@ -394,7 +494,7 @@ export function listen<T>(
     return tauriListen<T>(event, handler, options);
   }
 
-  if (isServerRuntime() && (event === "terminal-output" || event === "terminal-exit")) {
+  if (isServerRuntime() && (event === "terminal-output" || event === "terminal-exit" || event === "terminal-reconnect")) {
     const handlers = serverEventHandlers.get(event) ?? new Set<EventCallback<unknown>>();
     handlers.add(handler as EventCallback<unknown>);
     serverEventHandlers.set(event, handlers);

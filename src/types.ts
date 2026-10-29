@@ -66,11 +66,24 @@ export interface TerminalStarted {
   shell: string;
   cwd: string;
   windowsBuildNumber?: number | null;
+  keepAlive?: boolean;
+  output?: string;
+  outputSequence?: number;
+  outputTruncated?: boolean;
+}
+
+export interface ServerTerminalSession {
+  sessionId: string;
+  projectId: string | null;
+  shell: string;
+  cwd: string;
+  keepAlive: boolean;
 }
 
 export interface TerminalOutput {
   sessionId: string;
   data: string;
+  sequence?: number;
 }
 
 export interface TerminalExit {

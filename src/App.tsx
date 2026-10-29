@@ -35,6 +35,7 @@ import {
   openDialog,
   setWindowTitle,
   startWindowDrag,
+  supportsServerSessionLease,
   toggleWindowMaximize,
 } from "./tauriRuntime";
 import {
@@ -61,6 +62,7 @@ import type {
   TerminalColorKey,
   WorkbenchState,
   DirectoryListing,
+  ServerTerminalSession,
 } from "./types";
 import type { CSSProperties } from "react";
 
@@ -236,7 +238,16 @@ export function App() {
   const [lineHeightInput, setLineHeightInput] = useState(() => terminalAppearance.lineHeight.toFixed(2));
   const [terminalControlRequest, setTerminalControlRequest] = useState<TerminalPaneControlRequest | null>(null);
   const [sessionResumeRequest, setSessionResumeRequest] = useState<CodexSessionResumeRequest | null>(null);
+  const [terminalAttachRequest, setTerminalAttachRequest] = useState<{ id: number; session: ServerTerminalSession } | null>(null);
+  const [webSessionLeaseSupported, setWebSessionLeaseSupported] = useState(false);
+  const [backgroundSessions, setBackgroundSessions] = useState<ServerTerminalSession[]>([]);
+  const [backgroundSessionsError, setBackgroundSessionsError] = useState<string | null>(null);
+  const [backgroundSessionBusy, setBackgroundSessionBusy] = useState<string | null>(null);
   const [terminalControlState, setTerminalControlState] = useState<TerminalPaneControlState>({
+    sessionId: null,
+    backgroundSupported: false,
+    backgroundBusy: false,
+    keepAlive: false,
     viewMode: "terminal",
     displayMode: "tiles",
     canInterrupt: false,
@@ -247,6 +258,7 @@ export function App() {
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const terminalControlRequestIdRef = useRef(0);
   const sessionResumeRequestIdRef = useRef(0);
+  const terminalAttachRequestIdRef = useRef(0);
   const sidebarLayoutRef = useRef(sidebarLayout);
   const sidebarResizeRef = useRef<{
     pointerId: number;
@@ -351,6 +363,20 @@ export function App() {
       activeProjectId: projectId,
     };
   }
+
+  useEffect(() => {
+    if (!settingsOpen || isTauriRuntime()) return;
+    let cancelled = false;
+    setBackgroundSessionsError(null);
+    void supportsServerSessionLease().then(async supported => {
+      if (cancelled) return;
+      setWebSessionLeaseSupported(supported);
+      if (!supported) return;
+      const sessions = await invoke<ServerTerminalSession[]>("terminal_sessions");
+      if (!cancelled) setBackgroundSessions(sessions.filter(session => session.keepAlive));
+    }).catch(error => { if (!cancelled) setBackgroundSessionsError(String(error)); });
+    return () => { cancelled = true; };
+  }, [settingsOpen, terminalControlState.keepAlive, terminalControlState.sessionId]);
 
   useEffect(() => {
     let resizeFrame: number | null = null;
@@ -1556,6 +1582,48 @@ export function App() {
               </div>
             </div>
 
+            {!isTauriRuntime() && webSessionLeaseSupported && (
+              <section className="settings-session-lifecycle" aria-label="网页会话保留">
+                <label className="settings-background-toggle">
+                  <input type="checkbox" checked={terminalControlState.keepAlive}
+                    disabled={!terminalControlState.backgroundSupported || terminalControlState.backgroundBusy}
+                    onChange={() => requestTerminalControl("toggle-background")} />
+                  <span>后台保留当前会话</span>
+                </label>
+                <p>{terminalControlState.keepAlive
+                  ? "已开启：关闭网页后继续运行，需手动停止或关闭终端。"
+                  : "普通会话断开 10 分钟后回收。长任务可开启后台保留。"}</p>
+                {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).length > 0 && (
+                  <ul className="settings-background-sessions" aria-label="后台保留的会话">
+                    {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).map(session => (
+                      <li key={session.sessionId}>
+                        <span className="settings-background-session-name" title={`${session.cwd} · ${session.sessionId}`}>
+                          {session.cwd}<small>{session.shell} · {session.sessionId.slice(0, 8)}</small>
+                        </span>
+                        <button type="button" disabled={backgroundSessionBusy !== null}
+                          aria-label={`打开后台会话 ${session.cwd}`}
+                          onClick={() => {
+                            setTerminalAttachRequest({ id: ++terminalAttachRequestIdRef.current, session });
+                            setSettingsOpen(false);
+                          }}>打开</button>
+                        <button type="button" disabled={backgroundSessionBusy !== null}
+                          aria-label={`结束后台会话 ${session.cwd}`}
+                          onClick={() => {
+                            setBackgroundSessionBusy(session.sessionId);
+                            setBackgroundSessionsError(null);
+                            void invoke("terminal_stop", { sessionId: session.sessionId }).then(() => {
+                              setBackgroundSessions(current => current.filter(item => item.sessionId !== session.sessionId));
+                            }).catch(error => setBackgroundSessionsError(String(error)))
+                              .finally(() => setBackgroundSessionBusy(null));
+                          }}>结束</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {backgroundSessionsError && <p role="alert">{backgroundSessionsError}</p>}
+              </section>
+            )}
+
             {currentProject && (
               <div className="settings-row settings-project-actions">
                 <span className="settings-row-label">工作区</span>
@@ -1737,6 +1805,7 @@ export function App() {
             appearance={terminalAppearance}
             controlRequest={terminalControlRequest}
             sessionResumeRequest={sessionResumeRequest}
+            terminalAttachRequest={terminalAttachRequest}
             onError={setError}
             onControlStateChange={setTerminalControlState}
             onProjectFocus={setActive}

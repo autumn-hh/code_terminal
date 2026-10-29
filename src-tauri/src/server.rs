@@ -13,7 +13,7 @@ use futures_util::{SinkExt, StreamExt};
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env, fs,
     io::{Read, Write},
     net::SocketAddr,
@@ -32,6 +32,8 @@ mod atomic_state;
 mod codex_sessions;
 #[path = "attachments.rs"]
 mod attachments;
+#[path = "terminal_lifecycle.rs"]
+mod terminal_lifecycle;
 
 const MAX_PASTED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const DEFAULT_ADDR: &str = "127.0.0.1:8787";
@@ -86,6 +88,13 @@ struct TerminalStarted {
     shell: String,
     cwd: String,
     windows_build_number: Option<u32>,
+    keep_alive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_sequence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_truncated: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +102,7 @@ struct TerminalStarted {
 struct TerminalOutput {
     session_id: String,
     data: String,
+    sequence: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,6 +139,8 @@ struct EventsTicketResponse {
     ticket: Option<String>,
     #[serde(rename = "terminalInput")]
     terminal_input: bool,
+    #[serde(rename = "sessionLease")]
+    session_lease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,6 +210,8 @@ struct TerminalStartRequest {
     project_id: Option<String>,
     cols: u16,
     rows: u16,
+    #[serde(default)]
+    lease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,6 +235,28 @@ struct TerminalStopRequest {
     session_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalHeartbeatRequest { session_ids: Vec<String> }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalBackgroundRequest { session_id: String, keep_alive: bool }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalAttachRequest { session_id: String, after_sequence: Option<u64> }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalSessionInfo {
+    session_id: String,
+    project_id: Option<String>,
+    shell: String,
+    cwd: String,
+    keep_alive: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SavePastedImageRequest {
@@ -240,6 +276,10 @@ struct AppState {
     terminals: Arc<Mutex<HashMap<String, TerminalSession>>>,
     events: broadcast::Sender<ServerEvent>,
     events_tickets: Arc<Mutex<HashMap<String, Instant>>>,
+    start_gate: Arc<Mutex<()>>,
+    history_slots: Arc<tokio::sync::Semaphore>,
+    cleanup_slots: Arc<tokio::sync::Semaphore>,
+    start_slots: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Clone)]
@@ -248,6 +288,8 @@ struct ServerConfig {
     token: Option<String>,
     state_file: PathBuf,
     static_dir: PathBuf,
+    idle_timeout: Duration,
+    max_sessions: usize,
 }
 
 struct TerminalSession {
@@ -255,6 +297,33 @@ struct TerminalSession {
     project_id: Option<String>,
     child: Box<dyn PtyChild + Send>,
     control_tx: mpsc::Sender<TerminalControl>,
+    last_seen: Instant,
+    keep_alive: bool,
+    lease_enabled: bool,
+    shell: String,
+    cwd: String,
+    output: Arc<Mutex<OutputHistory>>,
+}
+
+#[derive(Default)]
+struct OutputHistory { chunks: VecDeque<(u64, String)>, bytes: usize, sequence: u64 }
+
+impl OutputHistory {
+    fn push(&mut self, data: &str) -> u64 {
+        self.sequence += 1;
+        self.bytes += data.len();
+        self.chunks.push_back((self.sequence, data.to_owned()));
+        while self.bytes > 64 * 1024 || self.chunks.len() > 1024 {
+            if let Some((_, chunk)) = self.chunks.pop_front() { self.bytes -= chunk.len(); }
+        }
+        self.sequence
+    }
+    fn snapshot(&self, after: Option<u64>) -> (String, bool) {
+        let after = after.unwrap_or(0);
+        let first = self.chunks.front().map(|(seq, _)| *seq).unwrap_or(self.sequence + 1);
+        (self.chunks.iter().filter(|(seq, _)| *seq > after).map(|(_, data)| data.as_str()).collect(),
+         after.saturating_add(1) < first)
+    }
 }
 
 enum TerminalControl {
@@ -285,7 +354,12 @@ pub async fn run() -> Result<(), String> {
         terminals: Arc::new(Mutex::new(HashMap::new())),
         events,
         events_tickets: Arc::new(Mutex::new(HashMap::new())),
+        start_gate: Arc::new(Mutex::new(())),
+        history_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        cleanup_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        start_slots: Arc::new(tokio::sync::Semaphore::new(1)),
     };
+    start_session_reaper(&app_state)?;
 
     let static_service = ServeDir::new(&config.static_dir)
         .not_found_service(ServeFile::new(config.static_dir.join("index.html")));
@@ -309,6 +383,10 @@ pub async fn run() -> Result<(), String> {
         .route("/api/terminal_write", post(terminal_write))
         .route("/api/terminal_resize", post(terminal_resize))
         .route("/api/terminal_stop", post(terminal_stop))
+        .route("/api/terminal_sessions", get(terminal_sessions))
+        .route("/api/terminal_heartbeat", post(terminal_heartbeat))
+        .route("/api/terminal_background", post(terminal_background))
+        .route("/api/terminal_attach", post(terminal_attach))
         .route("/api/save_pasted_image", post(save_pasted_image))
         .route("/api/upload_attachment", post(upload_attachment))
         .route("/api/events", get(events_ws))
@@ -367,7 +445,43 @@ fn read_server_config() -> Result<ServerConfig, String> {
         token,
         state_file,
         static_dir,
+        idle_timeout: Duration::from_secs(read_bounded_setting("CODE_TERMINAL_IDLE_TIMEOUT_SECONDS", terminal_lifecycle::DEFAULT_IDLE_TIMEOUT.as_secs(), 2, 86400)?),
+        max_sessions: read_bounded_setting("CODE_TERMINAL_MAX_SESSIONS", terminal_lifecycle::DEFAULT_MAX_SESSIONS as u64, 1, 128)? as usize,
     })
+}
+
+fn read_bounded_setting(name: &str, default: u64, min: u64, max: u64) -> Result<u64, String> {
+    match env::var(name) {
+        Err(env::VarError::NotPresent) => Ok(default),
+        value => value.ok().and_then(|v| v.parse::<u64>().ok()).filter(|v| *v >= min && *v <= max)
+            .ok_or_else(|| format!("{name} must be between {min} and {max}")),
+    }
+}
+
+fn start_session_reaper(state: &AppState) -> Result<(), String> {
+    let terminals = Arc::downgrade(&state.terminals);
+    let timeout = state.config.idle_timeout;
+    let events = state.events.clone();
+    thread::Builder::new().name("terminal-reaper".into()).spawn(move || {
+        loop {
+            thread::sleep(timeout.min(Duration::from_secs(5)));
+            let Some(terminals) = terminals.upgrade() else { break };
+            let expired = {
+                let Ok(mut sessions) = terminals.lock() else { continue };
+                let now = Instant::now();
+                let ids: Vec<_> = sessions.iter().filter(|(_, s)| s.lease_enabled &&
+                    terminal_lifecycle::expired(s.last_seen, s.keep_alive, now, timeout))
+                    .map(|(id, _)| id.clone()).collect();
+                ids.into_iter().filter_map(|id| sessions.remove(&id).map(|s| (id, s))).collect::<Vec<_>>()
+            };
+            for (id, session) in expired {
+                stop_detached_terminal_session(session);
+                let _ = events.send(ServerEvent::TerminalExit(TerminalExit { session_id: id, code: None }));
+                eprintln!("reclaimed disconnected terminal session");
+            }
+        }
+    }).map_err(|e| format!("Unable to start terminal cleanup: {e}"))?;
+    Ok(())
 }
 
 fn parse_listen_addr(value: &str) -> Result<SocketAddr, String> {
@@ -612,7 +726,14 @@ async fn remove_project(
     Json(request): Json<ProjectIdRequest>,
 ) -> Result<Json<WorkbenchState>, ApiError> {
     authorize(&state.config, &headers, query.token.as_deref())?;
-    stop_terminals_for_project(&state.terminals, &request.project_id)?;
+    let permit = state.cleanup_slots.clone().try_acquire_owned()
+        .map_err(|_| ApiError::busy("正在结束其他终端，请稍后重试"))?;
+    let terminals = state.terminals.clone();
+    let project_id = request.project_id.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        stop_terminals_for_project(&terminals, &project_id)
+    }).await.map_err(|e| ApiError::internal(e.to_string()))??;
     let next_state = {
         let mut current = state.state_store.lock().map_err(lock_error)?;
         current
@@ -675,7 +796,13 @@ async fn list_codex_sessions(
             .ok_or_else(|| ApiError::bad_request("项目不存在"))?
     };
 
-    tokio::task::spawn_blocking(move || codex_sessions::list_codex_sessions(&path, 12))
+    terminal_lifecycle::check_task_capacity().map_err(ApiError::busy)?;
+    let permit = state.history_slots.clone().try_acquire_owned()
+        .map_err(|_| ApiError::busy("历史会话查询繁忙，请稍后重试"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        codex_sessions::list_codex_sessions(&path, 12)
+    })
         .await
         .map_err(|error| ApiError::internal(error.to_string()))?
         .map(Json)
@@ -689,13 +816,12 @@ async fn terminal_start(
     Json(request): Json<TerminalStartRequest>,
 ) -> Result<Json<TerminalStarted>, ApiError> {
     authorize(&state.config, &headers, query.token.as_deref())?;
-    Ok(Json(start_terminal_session(
-        &state,
-        request.session_id,
-        request.project_id,
-        request.cols,
-        request.rows,
-    )?))
+    let permit = state.start_slots.clone().try_acquire_owned()
+        .map_err(|_| ApiError::busy("正在创建终端，请稍后重试"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        start_terminal_session(&state, request.session_id, request.project_id, request.cols, request.rows, request.lease)
+    }).await.map_err(|e| ApiError::internal(e.to_string()))?.map(Json)
 }
 
 async fn terminal_write(
@@ -738,8 +864,76 @@ async fn terminal_stop(
     Json(request): Json<TerminalStopRequest>,
 ) -> Result<StatusCode, ApiError> {
     authorize(&state.config, &headers, query.token.as_deref())?;
-    stop_terminal_session(&state.terminals, &request.session_id)?;
+    let permit = state.cleanup_slots.clone().try_acquire_owned()
+        .map_err(|_| ApiError::busy("正在结束其他终端，请稍后重试"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        stop_terminal_session(&state.terminals, &request.session_id)
+    }).await.map_err(|e| ApiError::internal(e.to_string()))??;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn terminal_sessions(
+    State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TokenQuery>,
+) -> Result<Json<Vec<TerminalSessionInfo>>, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    let sessions = state.terminals.lock().map_err(lock_error)?;
+    Ok(Json(sessions.iter().map(|(id, s)| TerminalSessionInfo {
+        session_id: id.clone(), project_id: s.project_id.clone(), shell: s.shell.clone(),
+        cwd: s.cwd.clone(), keep_alive: s.keep_alive,
+    }).collect()))
+}
+
+async fn terminal_heartbeat(
+    State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TokenQuery>,
+    Json(request): Json<TerminalHeartbeatRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    if request.session_ids.len() > 128 || request.session_ids.iter().any(|id| id.len() > 256) {
+        return Err(ApiError::bad_request("会话列表过大"));
+    }
+    let mut sessions = state.terminals.lock().map_err(lock_error)?;
+    let mut missing = Vec::new();
+    for id in request.session_ids {
+        if let Some(session) = sessions.get_mut(&id) {
+            session.last_seen = Instant::now();
+            session.lease_enabled = true;
+        }
+        else { missing.push(id); }
+    }
+    Ok(Json(serde_json::json!({"missingSessionIds": missing})))
+}
+
+async fn terminal_background(
+    State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TokenQuery>,
+    Json(request): Json<TerminalBackgroundRequest>,
+) -> Result<StatusCode, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    let mut sessions = state.terminals.lock().map_err(lock_error)?;
+    let session = sessions.get_mut(&request.session_id).ok_or_else(|| ApiError::not_found("终端已结束"))?;
+    session.keep_alive = request.keep_alive;
+    session.lease_enabled = true;
+    session.last_seen = Instant::now();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn terminal_attach(
+    State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TokenQuery>,
+    Json(request): Json<TerminalAttachRequest>,
+) -> Result<Json<TerminalStarted>, ApiError> {
+    authorize(&state.config, &headers, query.token.as_deref())?;
+    let mut sessions = state.terminals.lock().map_err(lock_error)?;
+    let session = sessions.get_mut(&request.session_id).ok_or_else(|| ApiError::not_found("终端已结束，可新建终端或恢复 Codex 历史会话"))?;
+    session.last_seen = Instant::now();
+    let output = session.output.lock().map_err(lock_error)?;
+    session.lease_enabled = true;
+    let (data, truncated) = output.snapshot(request.after_sequence);
+    Ok(Json(TerminalStarted {
+        session_id: request.session_id, shell: session.shell.clone(), cwd: session.cwd.clone(),
+        windows_build_number: None, keep_alive: session.keep_alive, output: Some(data),
+        output_sequence: Some(output.sequence),
+        output_truncated: Some(truncated),
+    }))
 }
 
 async fn save_pasted_image(
@@ -801,6 +995,7 @@ async fn events_ticket(
         return Ok(Json(EventsTicketResponse {
             ticket: None,
             terminal_input: true,
+            session_lease: true,
         }));
     }
 
@@ -812,6 +1007,7 @@ async fn events_ticket(
     Ok(Json(EventsTicketResponse {
         ticket: Some(ticket),
         terminal_input: true,
+        session_lease: true,
     }))
 }
 
@@ -896,7 +1092,8 @@ async fn events_socket(socket: WebSocket, state: AppState) {
                     break;
                 }
             }
-            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            // Do not silently skip output: reconnect resumes from the buffered sequence.
+            Err(broadcast::error::RecvError::Lagged(_)) => break,
             Err(broadcast::error::RecvError::Closed) => break,
           } }
         }
@@ -909,7 +1106,16 @@ fn start_terminal_session(
     project_id: Option<String>,
     cols: u16,
     rows: u16,
+    lease_enabled: bool,
 ) -> Result<TerminalStarted, ApiError> {
+    let _starting = state.start_gate.lock().map_err(lock_error)?;
+    if session_id.is_empty() || session_id.len() > 256 {
+        return Err(ApiError::bad_request("终端会话标识无效"));
+    }
+    if state.terminals.lock().map_err(lock_error)?.len() >= state.config.max_sessions {
+        return Err(ApiError::busy("终端会话已达上限，请先关闭不需要的会话（含后台保留会话）"));
+    }
+    terminal_lifecycle::check_task_capacity().map_err(ApiError::busy)?;
     let cwd = resolve_terminal_cwd(&state.state_store, project_id.as_deref())?;
     if state
         .terminals
@@ -937,12 +1143,6 @@ fn start_terminal_session(
     configure_terminal_environment(&mut command);
     command.cwd(cwd.clone());
 
-    let child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|error| ApiError::internal(format!("启动本地终端失败：{error}")))?;
-    drop(pair.slave);
-
     let mut reader = pair
         .master
         .try_clone_reader()
@@ -951,6 +1151,9 @@ fn start_terminal_session(
         .master
         .take_writer()
         .map_err(|error| ApiError::internal(error.to_string()))?;
+    let child = pair.slave.spawn_command(command)
+        .map_err(|error| ApiError::internal(format!("启动本地终端失败：{error}")))?;
+    drop(pair.slave);
     let master = pair.master;
     let (control_tx, control_rx) = mpsc::channel::<TerminalControl>();
     let instance_id = Uuid::new_v4();
@@ -959,6 +1162,7 @@ fn start_terminal_session(
     let events_for_output = state.events.clone();
     let events_for_exit = state.events.clone();
     let terminals_for_exit = state.terminals.clone();
+    let output_history = Arc::new(Mutex::new(OutputHistory::default()));
 
     {
         let mut sessions = state.terminals.lock().map_err(lock_error)?;
@@ -975,11 +1179,17 @@ fn start_terminal_session(
                 project_id,
                 child,
                 control_tx,
+                last_seen: Instant::now(),
+                keep_alive: false,
+                lease_enabled,
+                shell: shell_label.clone(),
+                cwd: path_to_string(&cwd),
+                output: output_history.clone(),
             },
         );
     }
 
-    thread::spawn(move || {
+    if let Err(error) = thread::Builder::new().name("terminal-control".into()).spawn(move || {
         let mut writer = writer;
         let master = master;
         while let Ok(message) = control_rx.recv() {
@@ -1015,9 +1225,12 @@ fn start_terminal_session(
                 TerminalControl::Stop => break,
             }
         }
-    });
+    }) {
+        let _ = stop_terminal_session(&state.terminals, &session_id);
+        return Err(ApiError::busy(format!("无法分配终端线程：{error}")));
+    }
 
-    thread::spawn(move || {
+    if let Err(error) = thread::Builder::new().name("terminal-output".into()).spawn(move || {
         let mut buffer = [0_u8; 8192];
         let mut pending_utf8 = Vec::new();
         loop {
@@ -1028,23 +1241,31 @@ fn start_terminal_session(
                     &output_session_id,
                     &mut pending_utf8,
                     &buffer[..size],
+                    &output_history,
                 ),
                 Err(_) => break,
             }
         }
-        flush_terminal_output(&events_for_output, &output_session_id, &mut pending_utf8);
+        flush_terminal_output(&events_for_output, &output_session_id, &mut pending_utf8, &output_history);
         let _ = events_for_exit.send(ServerEvent::TerminalExit(TerminalExit {
             session_id: exit_session_id.clone(),
             code: None,
         }));
         release_naturally_exited_terminal(&terminals_for_exit, &exit_session_id, instance_id);
-    });
+    }) {
+        let _ = stop_terminal_session(&state.terminals, &session_id);
+        return Err(ApiError::busy(format!("无法分配终端线程：{error}")));
+    }
 
     Ok(TerminalStarted {
         session_id,
         shell: shell_label,
         cwd: path_to_string(&cwd),
         windows_build_number: None,
+        keep_alive: false,
+        output: None,
+        output_sequence: None,
+        output_truncated: None,
     })
 }
 
@@ -1054,10 +1275,13 @@ fn send_terminal_control(
     control: TerminalControl,
 ) -> Result<(), ApiError> {
     let control_tx = {
-        let sessions = terminals.lock().map_err(lock_error)?;
+        let mut sessions = terminals.lock().map_err(lock_error)?;
         sessions
-            .get(session_id)
-            .map(|session| session.control_tx.clone())
+            .get_mut(session_id)
+            .map(|session| {
+                session.last_seen = Instant::now();
+                session.control_tx.clone()
+            })
             .ok_or_else(|| ApiError::not_found("终端会话不存在"))?
     };
     control_tx
@@ -1107,7 +1331,16 @@ fn stop_terminals_for_project(
 
 fn stop_detached_terminal_session(mut session: TerminalSession) {
     let _ = session.control_tx.send(TerminalControl::Stop);
+    if let Some(pid) = session.child.process_id() { terminal_lifecycle::stop_pty_processes(pid); }
     let _ = session.child.kill();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        match session.child.try_wait() {
+            Ok(Some(_)) | Err(_) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => { eprintln!("terminal child has not exited after termination"); break; }
+        }
+    }
 }
 
 fn release_naturally_exited_terminal(
@@ -1125,7 +1358,7 @@ fn release_naturally_exited_terminal(
             .flatten()
     });
     if let Some(session) = session {
-        let _ = session.control_tx.send(TerminalControl::Stop);
+        stop_detached_terminal_session(session);
     }
 }
 
@@ -1134,6 +1367,7 @@ fn emit_terminal_output(
     session_id: &str,
     pending_utf8: &mut Vec<u8>,
     bytes: &[u8],
+    output: &Mutex<OutputHistory>,
 ) {
     pending_utf8.extend_from_slice(bytes);
     loop {
@@ -1145,7 +1379,7 @@ fn emit_terminal_output(
             Ok(text) => {
                 let data = text.to_string();
                 pending_utf8.clear();
-                emit_terminal_text(events, session_id, data);
+                emit_terminal_text(events, session_id, data, output);
                 return;
             }
             Err(error) => {
@@ -1153,14 +1387,14 @@ fn emit_terminal_output(
                 if valid_up_to > 0 {
                     let data = String::from_utf8_lossy(&pending_utf8[..valid_up_to]).to_string();
                     pending_utf8.drain(..valid_up_to);
-                    emit_terminal_text(events, session_id, data);
+                    emit_terminal_text(events, session_id, data, output);
                     continue;
                 }
 
                 if let Some(error_len) = error.error_len() {
                     let data = String::from_utf8_lossy(&pending_utf8[..error_len]).to_string();
                     pending_utf8.drain(..error_len);
-                    emit_terminal_text(events, session_id, data);
+                    emit_terminal_text(events, session_id, data, output);
                     continue;
                 }
 
@@ -1174,6 +1408,7 @@ fn flush_terminal_output(
     events: &broadcast::Sender<ServerEvent>,
     session_id: &str,
     pending_utf8: &mut Vec<u8>,
+    output: &Mutex<OutputHistory>,
 ) {
     if pending_utf8.is_empty() {
         return;
@@ -1181,17 +1416,21 @@ fn flush_terminal_output(
 
     let data = String::from_utf8_lossy(pending_utf8).to_string();
     pending_utf8.clear();
-    emit_terminal_text(events, session_id, data);
+    emit_terminal_text(events, session_id, data, output);
 }
 
-fn emit_terminal_text(events: &broadcast::Sender<ServerEvent>, session_id: &str, data: String) {
+fn emit_terminal_text(events: &broadcast::Sender<ServerEvent>, session_id: &str, data: String, output: &Mutex<OutputHistory>) {
     if data.is_empty() {
         return;
     }
 
+    let sequence = if let Ok(mut history) = output.lock() {
+        history.push(&data)
+    } else { 0 };
     let _ = events.send(ServerEvent::TerminalOutput(TerminalOutput {
         session_id: session_id.to_string(),
         data,
+        sequence,
     }));
 }
 
@@ -1492,6 +1731,9 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn busy(message: impl Into<String>) -> Self {
+        Self { status: StatusCode::SERVICE_UNAVAILABLE, message: message.into() }
+    }
     fn unauthorized() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
@@ -1542,6 +1784,8 @@ mod tests {
             token: token.map(str::to_string),
             state_file: PathBuf::from("state.json"),
             static_dir: PathBuf::from("dist"),
+            idle_timeout: terminal_lifecycle::DEFAULT_IDLE_TIMEOUT,
+            max_sessions: terminal_lifecycle::DEFAULT_MAX_SESSIONS,
         }
     }
 
@@ -1585,6 +1829,21 @@ mod tests {
         let large =
             serde_json::json!({"id":2,"sessionId":"s","data":"中".repeat(22000)}).to_string();
         assert!(parse_socket_input(&large, 0).is_err());
+    }
+
+    #[test]
+    fn output_snapshot_is_bounded_and_sequence_delta_is_exact() {
+        let mut history = OutputHistory::default();
+        assert_eq!(history.push("first"), 1);
+        assert_eq!(history.push("中文"), 2);
+        assert_eq!(history.snapshot(Some(1)), ("中文".into(), false));
+        for _ in 0..100 { history.push(&"中".repeat(2000)); }
+        assert!(history.bytes <= 64 * 1024);
+        let (recent, truncated) = history.snapshot(Some(2));
+        assert!(truncated);
+        assert!(recent.chars().all(|c| c == '中'));
+        assert_eq!(history.snapshot(Some(history.sequence)), ("".into(), false));
+        assert!(!history.snapshot(Some(history.sequence - 1)).1);
     }
 }
 

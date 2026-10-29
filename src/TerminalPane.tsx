@@ -24,7 +24,7 @@ import { formatPastedImagePath } from "./clipboardImages";
 import { uploadAttachment } from "./tauriRuntime";
 import { createClientId } from "./ids";
 import { getTabIdForProjectFocus } from "./terminalTabFocus";
-import type { TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
+import type { ServerTerminalSession, TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
 
 interface TerminalPaneProps {
   mobileHeaderStart?: ReactNode;
@@ -35,6 +35,7 @@ interface TerminalPaneProps {
   appearance: TerminalAppearanceSettings;
   commandRequest?: TerminalCommandRequest | null;
   sessionResumeRequest?: CodexSessionResumeRequest | null;
+  terminalAttachRequest?: { id: number; session: ServerTerminalSession } | null;
   controlRequest?: TerminalPaneControlRequest | null;
   onError: (message: string) => void;
   onControlStateChange?: (state: TerminalPaneControlState) => void;
@@ -48,7 +49,7 @@ export interface CodexSessionResumeRequest {
 }
 
 export type TerminalDisplayMode = "tabs" | "tiles";
-export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "show-dialog" | "show-terminal" | "interrupt" | "restart" | "stop";
+export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "show-dialog" | "show-terminal" | "interrupt" | "restart" | "stop" | "toggle-background";
 
 export interface TerminalPaneControlRequest {
   id: number;
@@ -56,6 +57,10 @@ export interface TerminalPaneControlRequest {
 }
 
 export interface TerminalPaneControlState {
+  sessionId: string | null;
+  backgroundSupported: boolean;
+  backgroundBusy: boolean;
+  keepAlive: boolean;
   viewMode: "dialog" | "terminal";
   displayMode: TerminalDisplayMode;
   canInterrupt: boolean;
@@ -75,6 +80,7 @@ interface TerminalTab {
   projectName?: string | null;
   projectPath?: string | null;
   title: string;
+  attachSessionId?: string;
 }
 
 interface TerminalTabsState {
@@ -422,6 +428,7 @@ export function TerminalPane({
   appearance,
   commandRequest,
   sessionResumeRequest,
+  terminalAttachRequest,
   controlRequest,
   onError,
   onControlStateChange,
@@ -438,6 +445,7 @@ export function TerminalPane({
   const tileDragRef = useRef<TerminalTileDragState | null>(null);
   const lastRoutedCommandIdRef = useRef<number | null>(null);
   const lastSessionResumeRequestIdRef = useRef<number | null>(null);
+  const lastTerminalAttachRequestIdRef = useRef<number | null>(null);
   const lastControlRequestIdRef = useRef<number | null>(null);
   const previousProjectIdRef = useRef(activeProjectId);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1038,19 +1046,26 @@ export function TerminalPane({
 
   useEffect(() => {
     onControlStateChange?.({
+      sessionId: activeRuntime?.session?.sessionId ?? null,
+      backgroundSupported: typeof activeRuntime?.session?.keepAlive === "boolean",
+      backgroundBusy: activeRuntime?.backgroundBusy ?? false,
+      keepAlive: activeRuntime?.session?.keepAlive ?? false,
       viewMode: activeRuntime?.viewMode ?? "terminal",
       displayMode: layoutPreferences.displayMode,
       canInterrupt: Boolean(activeRuntime?.session),
       canRestart: !activeRuntime?.isStarting,
       canStop: Boolean(activeRuntime?.session),
     });
-  }, [activeRuntime?.isStarting, activeRuntime?.session, activeRuntime?.viewMode, layoutPreferences.displayMode, onControlStateChange]);
+  }, [activeRuntime?.isStarting, activeRuntime?.session, activeRuntime?.viewMode, activeRuntime?.backgroundBusy, layoutPreferences.displayMode, onControlStateChange]);
 
   useEffect(() => {
     if (!controlRequest || lastControlRequestIdRef.current === controlRequest.id) return;
 
     lastControlRequestIdRef.current = controlRequest.id;
     switch (controlRequest.action) {
+      case "toggle-background":
+        void terminalHandlesRef.current[terminalTabs.activeTabId]?.setBackground(!activeRuntime?.session?.keepAlive);
+        break;
       case "show-dialog":
       case "show-terminal":
         terminalHandlesRef.current[terminalTabs.activeTabId]?.showView(
@@ -1149,6 +1164,22 @@ export function TerminalPane({
       void terminalHandlesRef.current[tabId]?.resumeCodexSession(sessionResumeRequest.sessionId);
     }, 0);
   }, [activeProjectId, sessionResumeRequest, terminalTabs.activeTabId, terminalTabs.tabs]);
+
+  useEffect(() => {
+    if (!terminalAttachRequest || lastTerminalAttachRequestIdRef.current === terminalAttachRequest.id) return;
+    lastTerminalAttachRequestIdRef.current = terminalAttachRequest.id;
+    const session = terminalAttachRequest.session;
+    const existing = terminalTabs.tabs.find(tab => tabRuntime[tab.id]?.session?.sessionId === session.sessionId
+      || (tab.attachSessionId === session.sessionId && tabRuntime[tab.id]?.isStarting));
+    if (existing) {
+      focusTerminal(existing.id, "none");
+      return;
+    }
+    const name = session.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() || session.shell;
+    const tab = createTerminalTab(nextTabIndexRef.current++, { id: session.projectId, name, path: session.cwd });
+    tab.attachSessionId = session.sessionId;
+    setTerminalTabs(current => ({ tabs: [...current.tabs, tab], activeTabId: tab.id }));
+  }, [terminalAttachRequest]);
 
   useEffect(() => {
     terminalTabElementsRef.current[terminalTabs.activeTabId]?.scrollIntoView({
@@ -1388,6 +1419,7 @@ export function TerminalPane({
                 isActive={tab.id === terminalTabs.activeTabId}
                 isVisible={visibleTabIds.has(tab.id)}
                 activeProjectId={tab.projectId || null}
+                attachSessionId={tab.attachSessionId}
                 appearance={appearance}
                 commandRequest={routedCommand?.tabId === tab.id ? routedCommand.request : null}
                 onError={onError}

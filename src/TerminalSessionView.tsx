@@ -11,7 +11,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import "@xterm/xterm/css/xterm.css";
 import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from "./clipboardImages";
 import { createClientId } from "./ids";
-import { invoke, isTauriRuntime, listen } from "./tauriRuntime";
+import { invoke, isTauriRuntime, listen, releaseServerSession } from "./tauriRuntime";
 import { getXtermTheme } from "./terminalThemes";
 import type {
   TerminalAppearanceSettings,
@@ -206,9 +206,11 @@ export interface TerminalSessionRuntime {
   session: TerminalStarted | null;
   isStarting: boolean;
   viewMode: TerminalViewMode;
+  backgroundBusy: boolean;
 }
 
 export interface TerminalSessionHandle {
+  setBackground: (keepAlive: boolean) => Promise<void>;
   showView: (mode: TerminalViewMode) => void;
   restartSession: () => Promise<void>;
   resumeCodexSession: (sessionId: string) => Promise<void>;
@@ -225,6 +227,7 @@ interface TerminalSessionViewProps {
   isActive: boolean;
   isVisible: boolean;
   activeProjectId?: string | null;
+  attachSessionId?: string;
   appearance: TerminalAppearanceSettings;
   commandRequest?: TerminalCommandRequest | null;
   onError: (message: string) => void;
@@ -238,6 +241,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       isActive,
       isVisible,
       activeProjectId,
+      attachSessionId,
       appearance,
       commandRequest,
       onError,
@@ -249,6 +253,14 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const terminalRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const sessionIdRef = useRef<string | null>(null);
+    const initialAttachSessionRef = useRef(attachSessionId);
+    const attachingSessionRef = useRef<string | null>(null);
+    const attachOutputRef = useRef<TerminalOutput[]>([]);
+    const attachOutputCharsRef = useRef(0);
+    const attachOutputOverflowRef = useRef(false);
+    const lastOutputSequenceRef = useRef(0);
+    const outputRecoveryAgainRef = useRef(false);
+    const [backgroundBusy, setBackgroundBusy] = useState(false);
     const activeProjectIdRef = useRef(activeProjectId);
     const conversationLogRef = useRef<HTMLDivElement | null>(null);
     const dialogFollowOutputRef = useRef(true);
@@ -2484,6 +2496,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
     async function stopSession() {
       const sessionId = sessionIdRef.current;
+      attachingSessionRef.current = null;
+      attachOutputRef.current = [];
+      outputRecoveryAgainRef.current = false;
       startingSessionIdRef.current = null;
       sessionIdRef.current = null;
       pendingStartSessionRef.current = false;
@@ -2498,7 +2513,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       setSession(null);
       clearOutputQueue();
       if (sessionId) {
-        await invoke("terminal_stop", { sessionId }).catch(() => undefined);
+        await invoke("terminal_stop", { sessionId }).catch(error => onError(`停止会话失败：${String(error)}。后台保留的会话可在设置列表中重试。`));
       }
     }
 
@@ -2646,12 +2661,18 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       try {
         const size = isVisibleRef.current ? fitTerminal({ force: true }) ?? { cols: 100, rows: 28 } : { cols: 100, rows: 28 };
-        const sessionId = createClientId();
+        const attaching = initialAttachSessionRef.current;
+        const sessionId = attaching || createClientId();
         const requestedProjectId = activeProjectIdRef.current || null;
         startingSessionIdRef.current = sessionId;
+        attachingSessionRef.current = attaching || null;
+        attachOutputRef.current = [];
+        attachOutputCharsRef.current = 0;
+        attachOutputOverflowRef.current = false;
+        lastOutputSequenceRef.current = 0;
         lastResizeRef.current = size;
 
-        const started = await invoke<TerminalStarted>("terminal_start", {
+        const started = await invoke<TerminalStarted>(attaching ? "terminal_attach" : "terminal_start", {
           sessionId,
           projectId: requestedProjectId,
           cols: size.cols,
@@ -2674,7 +2695,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           }
           lastResizeRef.current = null;
           lastFitHostSizeRef.current = null;
-          await invoke("terminal_stop", { sessionId: started.sessionId }).catch(() => undefined);
+          if (attaching) releaseServerSession(started.sessionId);
+          else await invoke("terminal_stop", { sessionId: started.sessionId }).catch(() => undefined);
           if (projectChangedWhileStarting && !isLifecycleStoppingRef.current) {
             pendingStartSessionRef.current = true;
           }
@@ -2682,18 +2704,36 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         }
 
         applyWindowsPtyOptions(started);
+        initialAttachSessionRef.current = undefined;
         startingSessionIdRef.current = null;
         sessionIdRef.current = started.sessionId;
         setSession(started);
         appendConversationMessage("terminal", `${started.shell}\n${started.cwd}`);
         terminal.clear();
-        terminal.writeln(`\x1b[38;5;113m${started.shell}\x1b[0m  \x1b[38;5;245m${started.cwd}\x1b[0m`);
+        if (attaching) {
+          if (started.outputTruncated) terminal.writeln("\x1b[38;5;245m已恢复最近输出；较早内容已超出服务器缓存。\x1b[0m");
+          lastOutputSequenceRef.current = started.outputSequence ?? 0;
+          if (started.output) enqueueTerminalOutput(started.output);
+          for (const output of attachOutputOverflowRef.current ? [] : attachOutputRef.current) {
+            if (output.sequence !== undefined && output.sequence <= lastOutputSequenceRef.current) continue;
+            if (output.sequence !== undefined) lastOutputSequenceRef.current = output.sequence;
+            enqueueTerminalOutput(output.data);
+          }
+          if (attachOutputOverflowRef.current) outputRecoveryAgainRef.current = true;
+        } else {
+          terminal.writeln(`\x1b[38;5;113m${started.shell}\x1b[0m  \x1b[38;5;245m${started.cwd}\x1b[0m`);
+        }
+        attachingSessionRef.current = null;
+        attachOutputRef.current = [];
+        if (outputRecoveryAgainRef.current) void recoverSessionOutput();
         if (!isTauriRuntime() && started.shell === "Browser preview") {
           terminal.writeln(`\x1b[38;5;245m${browserPreviewMessage}\x1b[0m`);
         }
         scheduleFitAndResize({ force: true, settle: true });
         await flushPendingRawInput(started.sessionId);
       } catch (err) {
+        attachingSessionRef.current = null;
+        attachOutputRef.current = [];
         startingSessionIdRef.current = null;
         sessionIdRef.current = null;
         lastResizeRef.current = null;
@@ -2717,8 +2757,61 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     async function restartSession() {
+      initialAttachSessionRef.current = undefined;
       await stopSession();
       await startSession();
+    }
+
+    async function recoverSessionOutput() {
+      const id = sessionIdRef.current;
+      if (!id || isTauriRuntime()) return;
+      if (attachingSessionRef.current) {
+        outputRecoveryAgainRef.current = true;
+        return;
+      }
+      outputRecoveryAgainRef.current = false;
+      attachingSessionRef.current = id;
+      attachOutputRef.current = [];
+      attachOutputCharsRef.current = 0;
+      attachOutputOverflowRef.current = false;
+      try {
+        const recovered = await invoke<TerminalStarted>("terminal_attach", {
+          sessionId: id, afterSequence: lastOutputSequenceRef.current,
+        });
+        if (sessionIdRef.current !== id) {
+          releaseServerSession(id);
+          return;
+        }
+        if (recovered.outputTruncated) {
+          clearOutputQueue();
+          terminalRef.current?.reset();
+          terminalRef.current?.writeln("\x1b[38;5;245m断线期间输出超出缓存，已恢复最近内容。\x1b[0m");
+        }
+        if (recovered.output) enqueueTerminalOutput(recovered.output);
+        lastOutputSequenceRef.current = recovered.outputSequence ?? lastOutputSequenceRef.current;
+        for (const output of attachOutputOverflowRef.current ? [] : attachOutputRef.current) {
+          if (output.sequence !== undefined && output.sequence <= lastOutputSequenceRef.current) continue;
+          if (output.sequence !== undefined) lastOutputSequenceRef.current = output.sequence;
+          enqueueTerminalOutput(output.data);
+        }
+        if (attachOutputOverflowRef.current) outputRecoveryAgainRef.current = true;
+        setSession(current => current?.sessionId === id ? { ...current, keepAlive: recovered.keepAlive } : current);
+      } catch (error) {
+        if (sessionIdRef.current === id) {
+          for (const output of attachOutputRef.current) {
+            if (output.sequence !== undefined && output.sequence <= lastOutputSequenceRef.current) continue;
+            if (output.sequence !== undefined) lastOutputSequenceRef.current = output.sequence;
+            enqueueTerminalOutput(output.data);
+          }
+          onError(`恢复断线输出失败：${String(error)}`);
+        }
+      } finally {
+        if (attachingSessionRef.current === id) {
+          attachingSessionRef.current = null;
+          attachOutputRef.current = [];
+          if (outputRecoveryAgainRef.current && sessionIdRef.current === id) void recoverSessionOutput();
+        }
+      }
     }
 
     async function resumeCodexSession(sessionId: string) {
@@ -2732,6 +2825,19 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     useImperativeHandle(ref, () => ({
+      async setBackground(keepAlive) {
+        const id = sessionIdRef.current;
+        if (!id || isTauriRuntime() || backgroundBusy) return;
+        setBackgroundBusy(true);
+        try {
+          await invoke("terminal_background", { sessionId: id, keepAlive });
+          if (sessionIdRef.current === id) setSession(current => current ? { ...current, keepAlive } : null);
+        } catch (error) {
+          onError(String(error));
+        } finally {
+          setBackgroundBusy(false);
+        }
+      },
       showView(mode) {
         if (mode === "dialog") showDialogView();
         else showTerminalView();
@@ -2822,8 +2928,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }, [appearance.fontSize, appearance.lineHeight]);
 
     useEffect(() => {
-      onRuntimeChange(tabId, { session, isStarting, viewMode });
-    }, [isStarting, onRuntimeChange, session, tabId, viewMode]);
+      onRuntimeChange(tabId, { session, isStarting, viewMode, backgroundBusy });
+    }, [isStarting, onRuntimeChange, session, tabId, viewMode, backgroundBusy]);
 
     useEffect(() => {
       isActiveRef.current = isActive;
@@ -2999,9 +3105,25 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       window.visualViewport?.addEventListener("resize", handleViewportResize);
 
       const unlistenOutput = listen<TerminalOutput>("terminal-output", (event) => {
+        if (event.payload.sessionId === attachingSessionRef.current) {
+          attachOutputRef.current.push(event.payload);
+          attachOutputCharsRef.current += event.payload.data.length;
+          while (attachOutputCharsRef.current > 128 * 1024 || attachOutputRef.current.length > 1024) {
+            attachOutputCharsRef.current -= attachOutputRef.current.shift()!.data.length;
+            attachOutputOverflowRef.current = true;
+          }
+          return;
+        }
         if (event.payload.sessionId === sessionIdRef.current) {
+          if (event.payload.sequence !== undefined) {
+            if (event.payload.sequence <= lastOutputSequenceRef.current) return;
+            lastOutputSequenceRef.current = event.payload.sequence;
+          }
           enqueueTerminalOutput(event.payload.data);
         }
+      });
+      const unlistenReconnect = listen<TerminalExit>("terminal-reconnect", event => {
+        if (event.payload.sessionId === sessionIdRef.current) void recoverSessionOutput();
       });
 
       const unlistenExit = listen<TerminalExit>("terminal-exit", (event) => {
@@ -3012,6 +3134,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         dialogConversationStartedRef.current = false;
         setSession(null);
         appendConversationMessage("terminal", "会话已结束");
+        terminal.writeln("\r\n\x1b[38;5;245m会话已结束，可在设置中重新启动。\x1b[0m");
       });
 
       startSession({ restartIfStarting: true });
@@ -3039,6 +3162,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         scrollPositionDisposable.dispose();
         dataDisposable.dispose();
         unlistenOutput.then((unlisten) => unlisten());
+        unlistenReconnect.then((unlisten) => unlisten());
         unlistenExit.then((unlisten) => unlisten());
         isLifecycleStoppingRef.current = true;
         dialogConversationStartedRef.current = false;
