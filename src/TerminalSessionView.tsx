@@ -2971,9 +2971,10 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
         event.preventDefault();
         event.stopPropagation();
+        const pasteSessionId = sessionIdRef.current;
         void saveClipboardImage(imageItem)
           .then((path) => {
-            if (path) terminalRef.current?.paste(formatPastedImagePath(path));
+            if (path && terminalRef.current === terminal && sessionIdRef.current === pasteSessionId) terminal.paste(formatPastedImagePath(path));
           })
           .catch(reportTerminalError);
       };

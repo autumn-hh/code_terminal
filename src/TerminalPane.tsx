@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Paperclip,
   SendHorizontal,
   Terminal,
   X,
@@ -18,7 +19,8 @@ import {
   type TerminalSessionHandle,
   type TerminalSessionRuntime,
 } from "./TerminalSessionView";
-import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from "./clipboardImages";
+import { formatPastedImagePath } from "./clipboardImages";
+import { uploadAttachment } from "./tauriRuntime";
 import { createClientId } from "./ids";
 import { getTabIdForProjectFocus } from "./terminalTabFocus";
 import type { TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
@@ -455,6 +457,11 @@ export function TerminalPane({
     request: TerminalCommandRequest;
   } | null>(null);
   const [composerInputValue, setComposerInputValue] = useState("");
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const uploadControllerRef = useRef<AbortController | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  useEffect(() => () => uploadControllerRef.current?.abort(), []);
   const [isComposerExpanded, setIsComposerExpanded] = useState(() => window.matchMedia("(pointer: coarse)").matches);
   const renderColumnWeights = useMemo(
     () => normalizeGridWeights(columnWeights, activeLayout.columns),
@@ -506,7 +513,7 @@ export function TerminalPane({
   }
 
   function submitComposerInput(inputValue = composerInputValue) {
-    if (composerComposingRef.current) return;
+    if (composerComposingRef.current || uploadControllerRef.current) return;
     const value = inputValue.trimEnd();
     if (!value) return;
 
@@ -515,10 +522,12 @@ export function TerminalPane({
 
     activeTerminal.sendComposerInput(value);
     setComposerInputValue("");
+    setUploadStatus('');
     focusComposer();
   }
 
   function sendComposerEnterToTerminal() {
+    if (uploadControllerRef.current) return false;
     const activeTerminal = terminalHandlesRef.current[terminalTabs.activeTabId];
     if (!activeTerminal) return false;
 
@@ -634,7 +643,7 @@ export function TerminalPane({
   }, [composerInputValue, isComposerExpanded]);
 
   function sendComposerShortcut(key: string) {
-    if (composerComposingRef.current) return;
+    if (composerComposingRef.current || uploadControllerRef.current) return;
     const terminal = terminalHandlesRef.current[terminalTabs.activeTabId];
     if (!terminal) return;
     if (key === "\x03") {
@@ -671,17 +680,43 @@ export function TerminalPane({
   }
 
   function handleComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
-    const imageItem = getClipboardImageItem(event.clipboardData);
-    if (!imageItem) return;
+    const files = Array.from(event.clipboardData.files);
+    if (!files.length) return;
 
     event.preventDefault();
     event.stopPropagation();
-    const input = event.currentTarget;
-    void saveClipboardImage(imageItem)
-      .then((path) => {
-        if (path) insertComposerText(formatPastedImagePath(path), input);
-      })
-      .catch((error) => onError(String(error)));
+    void addAttachments(files);
+  }
+
+  async function addAttachments(files: File[]) {
+    if (!files.length || uploadControllerRef.current) return;
+    if (files.length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
+      onError('每次最多选择 10 个文件，单个文件不能超过 25 MB');
+      return;
+    }
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
+    setIsUploading(true);
+    setIsComposerExpanded(true);
+    try {
+      for (const [index, file] of files.entries()) {
+        const label = `上传 ${index + 1}/${files.length}：${file.name}`;
+        setUploadStatus(label);
+        const path = await uploadAttachment(file, percentage => setUploadStatus(`${label} · ${percentage}%`), controller.signal);
+        if (controller.signal.aborted) return;
+        // Keep text typed while the network request was in flight; never submit automatically.
+        setComposerInputValue(current => current + (current && !/\s$/.test(current) ? ' ' : '') + formatPastedImagePath(path) + ' ');
+      }
+      setUploadStatus(`已添加 ${files.length} 个文件，可补充说明后发送`);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setUploadStatus('上传失败，已添加的文件和输入内容已保留');
+        onError(String(error));
+      }
+    } finally {
+      if (uploadControllerRef.current === controller) uploadControllerRef.current = null;
+      if (!controller.signal.aborted) setIsUploading(false);
+    }
   }
 
   function interruptActiveTerminal() {
@@ -1372,6 +1407,7 @@ export function TerminalPane({
       </div>
 
       <div className={`terminal-composer-area ${isComposerExpanded ? "expanded" : ""}`}>
+        <div className="terminal-composer-heading">
         <button
           aria-controls="terminal-composer-form"
           aria-expanded={isComposerExpanded}
@@ -1383,11 +1419,27 @@ export function TerminalPane({
           <span>辅助输入</span>
           {isComposerExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </button>
+        <button type="button" className="terminal-attachment-button" aria-label="添加文件或图片"
+          title="选择文件或图片，单个不超过 25 MB" disabled={isUploading}
+          onClick={() => attachmentInputRef.current?.click()}>
+          <Paperclip size={16} /><span>添加文件</span>
+        </button>
+        <input ref={attachmentInputRef} type="file" multiple hidden aria-label="选择附件"
+          onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addAttachments(files); }} />
+        </div>
+        {uploadStatus && <div className="terminal-upload-status" role="status" aria-live="polite">{uploadStatus}</div>}
         <form
           aria-label="对话输入"
           className="terminal-composer"
           hidden={!isComposerExpanded}
           id="terminal-composer-form"
+          aria-busy={isUploading}
+          onDragOver={event => { if (Array.from(event.dataTransfer.types).includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }}
+          onDrop={event => {
+            const files = Array.from(event.dataTransfer.files);
+            if (!files.length) return;
+            event.preventDefault(); event.stopPropagation(); void addAttachments(files);
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             if (hasComposerText) submitComposerInput();
@@ -1422,6 +1474,7 @@ export function TerminalPane({
           />
           <button
             className="terminal-composer-send"
+            disabled={isUploading}
             aria-label={hasComposerText ? "发送" : "回车确认"}
             title={hasComposerText ? "发送" : "回车确认"}
             onPointerDown={(event) => event.preventDefault()}

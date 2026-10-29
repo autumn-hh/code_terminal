@@ -2,6 +2,7 @@
 
 mod atomic_state;
 mod codex_sessions;
+mod attachments;
 
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
@@ -578,6 +579,11 @@ fn save_pasted_image(mime_type: String, bytes: Vec<u8>) -> Result<String, String
 }
 
 #[tauri::command]
+fn save_attachment(name: String, bytes: Vec<u8>) -> Result<String, String> {
+    attachments::save_attachment(&std::env::temp_dir().join("code-terminal").join("uploads"), &name, &bytes)
+}
+
+#[tauri::command]
 fn clear_tui_debug_log() -> Result<String, String> {
     let path = tui_debug_log_path();
     if path.exists() {
@@ -652,6 +658,7 @@ pub fn run() {
             terminal_resize,
             terminal_stop,
             save_pasted_image,
+            save_attachment,
             clear_tui_debug_log,
             append_tui_debug_log
         ])

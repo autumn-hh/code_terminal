@@ -1,7 +1,8 @@
 use axum::{
+    body::to_bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Query, State,
+        Query, State, Request,
     },
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -29,6 +30,8 @@ use uuid::Uuid;
 mod atomic_state;
 #[path = "codex_sessions.rs"]
 mod codex_sessions;
+#[path = "attachments.rs"]
+mod attachments;
 
 const MAX_PASTED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const DEFAULT_ADDR: &str = "127.0.0.1:8787";
@@ -225,6 +228,11 @@ struct SavePastedImageRequest {
     bytes: Vec<u8>,
 }
 
+#[derive(Deserialize)]
+struct AttachmentQuery {
+    name: String,
+}
+
 #[derive(Clone)]
 struct AppState {
     config: ServerConfig,
@@ -302,6 +310,7 @@ pub async fn run() -> Result<(), String> {
         .route("/api/terminal_resize", post(terminal_resize))
         .route("/api/terminal_stop", post(terminal_stop))
         .route("/api/save_pasted_image", post(save_pasted_image))
+        .route("/api/upload_attachment", post(upload_attachment))
         .route("/api/events", get(events_ws))
         .route("/api/events_ticket", post(events_ticket))
         .fallback_service(static_service)
@@ -744,6 +753,22 @@ async fn save_pasted_image(
         request.mime_type,
         request.bytes,
     )?))
+}
+
+async fn upload_attachment(
+    State(state): State<AppState>,
+    Query(query): Query<AttachmentQuery>,
+    request: Request,
+) -> Result<Json<String>, ApiError> {
+    // Authenticate before reading any file bytes; this route alone has a 25 MB limit.
+    authorize(&state.config, request.headers(), None)?;
+    let bytes = to_bytes(request.into_body(), attachments::MAX_ATTACHMENT_BYTES).await
+        .map_err(|_| ApiError { status: StatusCode::PAYLOAD_TOO_LARGE, message: "文件上传失败或超过 25 MB".into() })?;
+    let root = state.config.state_file.parent().unwrap_or(Path::new(".")).join("uploads");
+    let path = tokio::task::spawn_blocking(move || attachments::save_attachment(&root, &query.name, &bytes))
+        .await.map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::internal)?;
+    Ok(Json(path))
 }
 
 async fn events_ws(

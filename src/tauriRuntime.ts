@@ -145,6 +145,50 @@ function serverHeaders() {
   return headers;
 }
 
+export async function uploadAttachment(file: File, onProgress?: (percentage: number) => void, signal?: AbortSignal): Promise<string> {
+  if (file.size > 25 * 1024 * 1024) throw new Error('单个文件不能超过 25 MB');
+  if (signal?.aborted) throw new Error('上传已取消');
+  if (isTauriRuntime()) {
+    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const path = await tauriInvoke<string>('save_attachment', { name: file.name, bytes });
+    onProgress?.(100);
+    return path;
+  }
+  if (!isServerRuntime()) throw new Error('上传文件需要连接完整服务端');
+  const url = serverApiUrl('upload_attachment');
+  url.searchParams.set('name', file.name);
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const abort = () => request.abort();
+    const finish = () => signal?.removeEventListener('abort', abort);
+    request.open('POST', url);
+    request.timeout = 120000;
+    const token = readServerToken();
+    if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
+    request.setRequestHeader('Content-Type', 'application/octet-stream');
+    request.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(Math.round(event.loaded / event.total * 100));
+    };
+    request.onload = () => {
+      finish();
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(request.status === 413 ? '单个文件不能超过 25 MB' : request.status === 401 ? '访问凭证失效，请重新打开授权链接' : '文件上传失败，请重试'));
+        return;
+      }
+      try {
+        const path: unknown = JSON.parse(request.responseText);
+        if (typeof path !== 'string' || !path) throw new Error();
+        resolve(path);
+      } catch { reject(new Error('服务器未返回文件路径，请确认服务端已更新')); }
+    };
+    request.onerror = () => { finish(); reject(new Error('网络中断，文件未上传成功')); };
+    request.ontimeout = () => { finish(); reject(new Error('文件上传超时，请重试')); };
+    request.onabort = () => { finish(); reject(new Error('上传已取消')); };
+    signal?.addEventListener('abort', abort, { once: true });
+    request.send(file);
+  });
+}
+
 async function serverInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   if (serverEventHandlers.size > 0 && isTerminalEventProducingCommand(cmd)) {
     await ensureServerEventsSocket();
