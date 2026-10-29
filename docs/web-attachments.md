@@ -37,3 +37,9 @@
 默认 release exe 正在运行而无法覆盖，保留用户窗口，使用 `$env:CARGO_TARGET_DIR="D:/freelife/opencode-workbench/src-tauri/target-bundle"; npm run build` 构建成功。最新文件位于 `src-tauri/target-bundle/release/code-terminal.exe`。
 
 随后按用户要求恢复默认构建位置：`npm run build` 输出 `src-tauri/target/release/code-terminal.exe`。额外的 `target-bundle`、`target-codex-build`、`target-codex-debug`、`target-dock-build`、`target-linux` 均为可重建产物，清理后仅保留默认 `target`；Linux 发布需要时重新构建。
+
+后续用户确认需要频繁部署 Linux，保留策略调整为仅保留 `target` 和 `target-linux` 两处构建目录。Linux x86_64 release 在本机 `rust:1-bookworm` 容器中按锁文件重新生成，Cargo 下载缓存放在 `target-linux/cargo-home`。后续发布只复制服务端二进制和前端 `dist`，不上传构建缓存；不同架构或不兼容的 libc 需另行构建。构建命令和部署包位置见 `docs/agent-harness/memory.yaml`。
+
+Linux 产物已重新生成：二进制 `src-tauri/target-linux/release/code-terminal-server`；部署包 `src-tauri/target-linux/delivery/code-terminal-linux-x86_64.tar.gz`，同目录有 `manifest.json` 和 `SHA256SUMS`。包内只含二进制、6 个前端文件及清单，无状态文件、凭据或编译缓存。二进制为 x86_64 ELF，运行需要 glibc ≥ 2.34、libgcc_s.so.1 和可用 shell；不直接适用于 ARM 或 Alpine/musl。
+
+验证：Linux `cargo build --release --no-default-features --locked` 成功；同目标 `cargo test --release --no-default-features --locked --offline` 11/11 通过。`python .playwright-cli/linux-delivery.py` 对包内 7 个文件逐个校验哈希，并在 `debian:bookworm-slim` 隔离容器验证首页与本地一致、匿名 API 401、认证 WebSocket 能力和真实 PTY 命令执行；测试容器已停止移除。Windows `npm run build` 也在默认目录成功。仅本地准备产物，未改动线上部署。

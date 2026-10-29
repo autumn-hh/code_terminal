@@ -95,7 +95,9 @@ deployment:
     secret_policy: "Never store the root password or CODE_TERMINAL_TOKEN in repo files, commits, harness memory, or final answers."
 
 validation:
-  build_directory_policy: "Use the default src-tauri/target for builds and src-tauri/target/release/code-terminal.exe for Windows delivery. User requested removing extra target-* directories on 2026-10-29; avoid leaving parallel build caches. Linux builds may be recreated when needed."
+  build_directory_policy: "Keep exactly the two useful build roots: src-tauri/target for Windows and src-tauri/target-linux for Linux server releases/caches. User explicitly requested retaining/rebuilding Linux artifacts on 2026-10-29 for future deployments. Do not recreate unrelated target-bundle/codex/dock directories. Windows delivery remains target/release/code-terminal.exe."
+  linux_build: "docker run --rm --platform linux/amd64 -v D:/freelife/opencode-workbench:/work -w /work -e CARGO_TARGET_DIR=/work/src-tauri/target-linux -e CARGO_HOME=/work/src-tauri/target-linux/cargo-home rust:1-bookworm cargo build --manifest-path src-tauri/Cargo.toml --bin code-terminal-server --no-default-features --release --locked"
+  linux_artifacts: "Binary: src-tauri/target-linux/release/code-terminal-server. Deployment archive: src-tauri/target-linux/delivery/code-terminal-linux-x86_64.tar.gz (binary, dist, manifest), with SHA256SUMS. Rebuild for changed code or other architectures/libc; never deploy cargo-home or compiler caches. No credentials or runtime state in the archive."
   local_testing:
     - "When the user asks to start local testing, run the full backend server with npm run server instead of vite preview, because the phone/Web UI needs the Rust event/terminal API routes."
     - "Default local full-stack URL is http://127.0.0.1:8787/ and does not require a token."
