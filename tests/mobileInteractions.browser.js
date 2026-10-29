@@ -11,6 +11,8 @@ async (page) => {
   await cdp.send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 5});
   await page.setViewportSize({width:390,height:844});
   await page.route('**/api/load_state', route => route.fulfill({json:{projects:[],activeProjectId:null}}));
+  // Exercise compatibility with a server that only accepts HTTP input.
+  await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null}}));
   await page.routeWebSocket('**/api/events*', ws => {socket=ws;});
   const input = page.getByRole('textbox',{name:'输入内容',exact:true});
   let startedId;

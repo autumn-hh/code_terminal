@@ -8,6 +8,8 @@ async (page) => {
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
   await page.setViewportSize({width:390,height:844});
   await page.route('**/api/load_state',r=>r.fulfill({json:{projects:[],activeProjectId:null}}));
+  // Exercise compatibility with a server that only accepts HTTP input.
+  await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null}}));
   await page.routeWebSocket('**/api/events*',ws=>{socket=ws;});
   await page.route('**/api/terminal_*',async r=>{
     const command=r.request().url().split('/').pop(), data=r.request().postDataJSON();

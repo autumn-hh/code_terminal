@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { defaultTerminalAppearance } from "./terminalThemes";
 import { TerminalInputQueue } from "./terminalInputQueue";
+import { TerminalSocketInput } from "./terminalSocketInput";
+import { terminalPerformance } from "./terminalPerformance";
 import type { OpenDialogOptions, OpenDialogReturn } from "@tauri-apps/plugin-dialog";
 import type { EventCallback, EventName, Options, UnlistenFn } from "@tauri-apps/api/event";
 import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
@@ -21,8 +23,18 @@ let previewTerminalSequence = 0;
 let serverToken: string | null | undefined;
 let serverEventsSocket: WebSocket | null = null;
 let serverEventsReady: Promise<void> | null = null;
+let serverSocketInput: TerminalSocketInput | null = null;
 const serverEventHandlers = new Map<string, Set<EventCallback<unknown>>>();
-const serverInputQueue = new TerminalInputQueue((sessionId, data) => serverInvoke<void>("terminal_write", { sessionId, data }));
+const serverInputQueue = new TerminalInputQueue(async (sessionId, data) => {
+  await ensureServerEventsSocket();
+  if (serverSocketInput) return serverSocketInput.write(sessionId, data);
+  // Only older servers without input capability use HTTP. Never replay a
+  // socket write after a disconnect: its delivery may already have occurred.
+  const start = terminalPerformance.now();
+  terminalPerformance.count('httpWrites');
+  try { await serverInvoke<void>("terminal_write", { sessionId, data }); }
+  finally { if (start) terminalPerformance.sample('httpWriteMs', terminalPerformance.now() - start); }
+});
 
 const previewState: WorkbenchState = {
   projects: [],
@@ -191,7 +203,7 @@ async function requestServerEventsTicket() {
     const message = await response.text().catch(() => response.statusText);
     throw new Error(message || response.statusText);
   }
-  return (await response.json()) as { ticket: string | null };
+  return (await response.json()) as { ticket: string | null; terminalInput?: boolean };
 }
 
 function normalizeServerEventName(type: string) {
@@ -214,10 +226,15 @@ function ensureServerEventsSocket(): Promise<void> {
   }
 
   const ready = (async () => {
-    const { ticket } = await requestServerEventsTicket();
+    const { ticket, terminalInput } = await requestServerEventsTicket();
     const socket = new WebSocket(serverEventsUrl(ticket));
+    const input = terminalInput ? new TerminalSocketInput(socket) : null;
     serverEventsSocket = socket;
+    serverSocketInput = input;
     await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup(); socket.close(); reject(new Error("服务器事件通道连接超时"));
+      }, 8000);
       const handleOpen = () => {
         cleanup();
         resolve();
@@ -227,6 +244,7 @@ function ensureServerEventsSocket(): Promise<void> {
         reject(new Error("服务器事件通道连接失败"));
       };
       const cleanup = () => {
+        window.clearTimeout(timeout);
         socket.removeEventListener("open", handleOpen);
         socket.removeEventListener("error", handleUnavailable);
         socket.removeEventListener("close", handleUnavailable);
@@ -240,6 +258,8 @@ function ensureServerEventsSocket(): Promise<void> {
     socket.addEventListener("message", (event) => {
       let payload: {
         type?: string;
+        id?: number;
+        error?: string | null;
         payload?: TerminalOutput | TerminalExit;
         terminalOutput?: TerminalOutput;
         terminalExit?: TerminalExit;
@@ -254,6 +274,10 @@ function ensureServerEventsSocket(): Promise<void> {
       }
 
       if (!payload.type) return;
+      if (payload.type === "terminal-input-ack" && typeof payload.id === "number") {
+        input?.acknowledge(payload.id, payload.error);
+        return;
+      }
 
       const eventName = normalizeServerEventName(payload.type);
       const eventPayload =
@@ -265,9 +289,11 @@ function ensureServerEventsSocket(): Promise<void> {
       });
     });
     socket.addEventListener("close", () => {
+      input?.fail();
       if (serverEventsSocket === socket) {
         serverEventsSocket = null;
         serverEventsReady = null;
+        serverSocketInput = null;
       }
       if (serverEventHandlers.size > 0) {
         window.setTimeout(() => {
@@ -282,6 +308,8 @@ function ensureServerEventsSocket(): Promise<void> {
     if (serverEventsReady === ready) {
       serverEventsSocket = null;
       serverEventsReady = null;
+      serverSocketInput?.fail();
+      serverSocketInput = null;
     }
   });
   return ready;
@@ -333,6 +361,8 @@ export function listen<T>(
         serverEventHandlers.delete(event);
       }
       if (serverEventHandlers.size === 0) {
+        serverSocketInput?.fail();
+        serverSocketInput = null;
         serverEventsSocket?.close();
         serverEventsSocket = null;
         serverEventsReady = null;

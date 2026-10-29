@@ -33,6 +33,7 @@ mod codex_sessions;
 const MAX_PASTED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const DEFAULT_ADDR: &str = "127.0.0.1:8787";
 const EVENTS_TICKET_TTL: Duration = Duration::from_secs(30);
+const MAX_SOCKET_INPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +124,16 @@ struct TokenQuery {
 #[derive(Debug, Serialize)]
 struct EventsTicketResponse {
     ticket: Option<String>,
+    #[serde(rename = "terminalInput")]
+    terminal_input: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SocketInput {
+    id: u64,
+    session_id: String,
+    data: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,6 +251,7 @@ struct TerminalSession {
 
 enum TerminalControl {
     Write(String),
+    WriteConfirmed(String, tokio::sync::oneshot::Sender<Result<(), String>>),
     Resize { cols: u16, rows: u16 },
     Stop,
 }
@@ -308,6 +320,9 @@ pub async fn run() -> Result<(), String> {
         }
     }
     axum::serve(listener, app)
+        // Terminal redraws arrive as small interactive packets; do not hold
+        // subsequent frames behind Nagle/delayed TCP acknowledgements.
+        .tcp_nodelay(true)
         .with_graceful_shutdown(shutdown_signal(app_state))
         .await
         .map_err(|error| error.to_string())
@@ -747,7 +762,8 @@ async fn events_ws(
         return error.into_response();
     }
 
-    ws.on_upgrade(move |socket| events_socket(socket, state.events.subscribe()))
+    ws.max_message_size(MAX_SOCKET_INPUT_BYTES * 8)
+        .on_upgrade(move |socket| events_socket(socket, state))
 }
 
 async fn events_ticket(
@@ -757,7 +773,10 @@ async fn events_ticket(
 ) -> Result<Json<EventsTicketResponse>, ApiError> {
     authorize(&state.config, &headers, query.token.as_deref())?;
     if state.config.token.is_none() {
-        return Ok(Json(EventsTicketResponse { ticket: None }));
+        return Ok(Json(EventsTicketResponse {
+            ticket: None,
+            terminal_input: true,
+        }));
     }
 
     let ticket = Uuid::new_v4().to_string();
@@ -767,6 +786,7 @@ async fn events_ticket(
     tickets.insert(ticket.clone(), now);
     Ok(Json(EventsTicketResponse {
         ticket: Some(ticket),
+        terminal_input: true,
     }))
 }
 
@@ -780,12 +800,55 @@ fn consume_events_ticket(tickets: &Mutex<HashMap<String, Instant>>, ticket: &str
         .unwrap_or(false)
 }
 
-async fn events_socket(socket: WebSocket, mut events: broadcast::Receiver<ServerEvent>) {
+fn parse_socket_input(text: &str, last_id: u64) -> Result<SocketInput, ApiError> {
+    let input: SocketInput =
+        serde_json::from_str(text).map_err(|_| ApiError::bad_request("无效的终端输入消息"))?;
+    if input.id <= last_id
+        || input.id > 9_007_199_254_740_991
+        || input.session_id.is_empty()
+        || input.session_id.len() > 256
+        || input.data.is_empty()
+        || input.data.len() > MAX_SOCKET_INPUT_BYTES
+    {
+        return Err(ApiError::bad_request("终端输入序号或大小无效"));
+    }
+    Ok(input)
+}
+
+async fn events_socket(socket: WebSocket, state: AppState) {
+    let mut events = state.events.subscribe();
     let (mut sender, mut receiver) = socket.split();
-    let close_reader = tokio::spawn(async move { while receiver.next().await.is_some() {} });
+    let mut last_id = 0;
 
     loop {
-        match events.recv().await {
+        tokio::select! {
+          incoming = receiver.next() => {
+            let Some(Ok(message)) = incoming else { break };
+            match message {
+                Message::Text(text) => {
+                    // Messages are handled in wire order on this authenticated socket.
+                    // Invalid/duplicate frames close it rather than replaying uncertain input.
+                    let Ok(input) = parse_socket_input(&text, last_id) else { break };
+                    last_id = input.id;
+                    let (confirm, received) = tokio::sync::oneshot::channel();
+                    let result = match send_terminal_control(&state.terminals, &input.session_id, TerminalControl::WriteConfirmed(input.data, confirm)) {
+                        Err(error) => Err(error),
+                        Ok(()) => match tokio::time::timeout(Duration::from_secs(4), received).await {
+                            Ok(Ok(Ok(()))) => Ok(()),
+                            _ => Err(ApiError::internal("终端写入失败或超时")),
+                        },
+                    };
+                    let failed = result.is_err();
+                    let reply = serde_json::json!({"type":"terminal-input-ack","id":input.id,
+                        "error":result.err().map(|error| error.message)}).to_string();
+                    if sender.send(Message::Text(reply)).await.is_err() || failed { break; }
+                }
+                Message::Close(_) | Message::Binary(_) => break,
+                Message::Ping(data) => { if sender.send(Message::Pong(data)).await.is_err() { break; } }
+                Message::Pong(_) => {}
+            }
+          }
+          event = events.recv() => { match event {
             Ok(event) => {
                 let message = match event {
                     ServerEvent::TerminalOutput(payload) => {
@@ -810,10 +873,9 @@ async fn events_socket(socket: WebSocket, mut events: broadcast::Receiver<Server
             }
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => break,
+          } }
         }
     }
-
-    close_reader.abort();
 }
 
 fn start_terminal_session(
@@ -903,6 +965,17 @@ fn start_terminal_session(
                         .and_then(|_| writer.flush())
                         .is_err()
                     {
+                        break;
+                    }
+                }
+                TerminalControl::WriteConfirmed(data, confirm) => {
+                    let result = writer
+                        .write_all(data.as_bytes())
+                        .and_then(|_| writer.flush())
+                        .map_err(|error| error.to_string());
+                    let failed = result.is_err();
+                    let _ = confirm.send(result);
+                    if failed {
                         break;
                     }
                 }
@@ -1472,6 +1545,21 @@ mod tests {
             Instant::now() - EVENTS_TICKET_TTL - Duration::from_secs(1),
         );
         assert!(!consume_events_ticket(&tickets, "expired"));
+    }
+
+    #[test]
+    fn socket_input_rejects_replay_invalid_shapes_and_oversized_utf8() {
+        let frame = r#"{"id":1,"sessionId":"s","data":"hello"}"#;
+        assert_eq!(parse_socket_input(frame, 0).unwrap().data, "hello");
+        assert!(parse_socket_input(frame, 1).is_err());
+        assert!(parse_socket_input(r#"{"id":2,"sessionId":"","data":"x"}"#, 0).is_err());
+        assert!(
+            parse_socket_input(r#"{"id":2,"sessionId":"s","data":"x","cmd":"run"}"#, 0).is_err()
+        );
+        assert!(parse_socket_input("not json", 0).is_err());
+        let large =
+            serde_json::json!({"id":2,"sessionId":"s","data":"中".repeat(22000)}).to_string();
+        assert!(parse_socket_input(&large, 0).is_err());
     }
 }
 

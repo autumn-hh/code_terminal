@@ -8,6 +8,8 @@ async (page) => {
   const cdp=await page.context().newCDPSession(page);
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.route('**/api/load_state',r=>r.fulfill({json:{projects:[],activeProjectId:null}}));
+  // Exercise compatibility with a server that only accepts HTTP input.
+  await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null}}));
   await page.routeWebSocket('**/api/events*',ws=>{socket=ws;});
   const emit=data=>socket.send(JSON.stringify({type:'terminalOutput',payload:{sessionId,data}}));
   const render=()=>emit('\x1b[H'+Array.from({length:rows},(_,i)=>'\x1b[2K'+(i===0?'Fixed header':i===rows-1?'Fixed footer':'content-row-'+String(offset+i).padStart(5,'0'))+(i<rows-1?'\r\n':'')).join(''));

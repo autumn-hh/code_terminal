@@ -45,3 +45,11 @@ test('independent sessions do not block one another', async () => {
   const first=queue.write('a','x'); await queue.write('b','y');
   assert.deepEqual(calls,['b']); release(); await first; assert.deepEqual(calls,['b','a']);
 });
+
+test('Enter arriving later still respects the post-confirmation paste gap',async()=>{
+  const calls=[];let confirm;const blocked=new Promise(resolve=>{confirm=resolve;});
+  const queue=new TerminalInputQueue(async(_,data)=>{calls.push({data,time:Date.now()});if(data.includes('[201~'))await blocked;});
+  const paste=queue.write('a','\x1b[200~hello\x1b[201~');await Promise.resolve();confirm();
+  await new Promise(r=>setTimeout(r,30));const enter=queue.write('a','\r');
+  await Promise.all([paste,enter]);assert.ok(calls[1].time-calls[0].time>=170);
+});
