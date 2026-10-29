@@ -109,6 +109,7 @@ validation:
     - "npm run build"
     - "npm run bundle:mac"
   mobile_ui:
+    compact_header: "On coarse-pointer devices and widths <=480px, use one 48px row for project entry, scrollable labeled session tabs, new session and settings. Hide repeated workspace and single-pane title; keep titles for multiple visible tiles. Move dialog/terminal selection into settings without dropping saved mode or transcript. Keep desktop chrome and temporary keyboard layout. Verify with tests/mobileHeader.browser.js."
     keyboard_regression: "Run tests/mobileKeyboard.browser.js through playwright-cli against a dedicated local full server. Simulate visualViewport-only shrinking and layout viewport resizing; assert usable TUI height with empty/long input and attachments at visible heights 420/360/280, keyboard-close restoration, 22px text, touch widths 320–1024, and desktop/zoom exclusion. Chromium simulation is not Android hardware IME validation."
     viewports:
       - "390x844"

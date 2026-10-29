@@ -205,9 +205,11 @@ function mapLightThemeTuiBackgrounds(data: string, appearance: TerminalAppearanc
 export interface TerminalSessionRuntime {
   session: TerminalStarted | null;
   isStarting: boolean;
+  viewMode: TerminalViewMode;
 }
 
 export interface TerminalSessionHandle {
+  showView: (mode: TerminalViewMode) => void;
   restartSession: () => Promise<void>;
   resumeCodexSession: (sessionId: string) => Promise<void>;
   stopSession: () => Promise<void>;
@@ -2730,6 +2732,10 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     useImperativeHandle(ref, () => ({
+      showView(mode) {
+        if (mode === "dialog") showDialogView();
+        else showTerminalView();
+      },
       restartSession,
       resumeCodexSession,
       stopSession,
@@ -2816,8 +2822,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }, [appearance.fontSize, appearance.lineHeight]);
 
     useEffect(() => {
-      onRuntimeChange(tabId, { session, isStarting });
-    }, [isStarting, onRuntimeChange, session, tabId]);
+      onRuntimeChange(tabId, { session, isStarting, viewMode });
+    }, [isStarting, onRuntimeChange, session, tabId, viewMode]);
 
     useEffect(() => {
       isActiveRef.current = isActive;

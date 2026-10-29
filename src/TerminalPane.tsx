@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ReactNode,
   CSSProperties,
   ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -26,6 +27,8 @@ import { getTabIdForProjectFocus } from "./terminalTabFocus";
 import type { TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
 
 interface TerminalPaneProps {
+  mobileHeaderStart?: ReactNode;
+  mobileHeaderEnd?: ReactNode;
   activeProjectId?: string | null;
   activeProjectName?: string | null;
   activeProjectPath?: string | null;
@@ -45,7 +48,7 @@ export interface CodexSessionResumeRequest {
 }
 
 export type TerminalDisplayMode = "tabs" | "tiles";
-export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "interrupt" | "restart" | "stop";
+export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "show-dialog" | "show-terminal" | "interrupt" | "restart" | "stop";
 
 export interface TerminalPaneControlRequest {
   id: number;
@@ -53,6 +56,7 @@ export interface TerminalPaneControlRequest {
 }
 
 export interface TerminalPaneControlState {
+  viewMode: "dialog" | "terminal";
   displayMode: TerminalDisplayMode;
   canInterrupt: boolean;
   canRestart: boolean;
@@ -410,6 +414,8 @@ function getGridCellStyle(
 }
 
 export function TerminalPane({
+  mobileHeaderStart,
+  mobileHeaderEnd,
   activeProjectId,
   activeProjectName,
   activeProjectPath,
@@ -1032,18 +1038,25 @@ export function TerminalPane({
 
   useEffect(() => {
     onControlStateChange?.({
+      viewMode: activeRuntime?.viewMode ?? "terminal",
       displayMode: layoutPreferences.displayMode,
       canInterrupt: Boolean(activeRuntime?.session),
       canRestart: !activeRuntime?.isStarting,
       canStop: Boolean(activeRuntime?.session),
     });
-  }, [activeRuntime?.isStarting, activeRuntime?.session, layoutPreferences.displayMode, onControlStateChange]);
+  }, [activeRuntime?.isStarting, activeRuntime?.session, activeRuntime?.viewMode, layoutPreferences.displayMode, onControlStateChange]);
 
   useEffect(() => {
     if (!controlRequest || lastControlRequestIdRef.current === controlRequest.id) return;
 
     lastControlRequestIdRef.current = controlRequest.id;
     switch (controlRequest.action) {
+      case "show-dialog":
+      case "show-terminal":
+        terminalHandlesRef.current[terminalTabs.activeTabId]?.showView(
+          controlRequest.action === "show-dialog" ? "dialog" : "terminal",
+        );
+        break;
       case "show-tabs":
         setLayoutPreferences({ ...layoutPreferences, displayMode: "tabs" });
         break;
@@ -1229,8 +1242,9 @@ export function TerminalPane({
   }
 
   return (
-    <section className="terminal-pane">
+    <section className={`terminal-pane ${visibleTabs.length > 1 ? "multiple-visible" : "single-visible"}`}>
       <header className="terminal-bar">
+        <div className="terminal-mobile-action">{mobileHeaderStart}</div>
         <div className="terminal-tab-strip">
           <strong className="terminal-bar-title">终端瓦片</strong>
           <div
@@ -1263,6 +1277,7 @@ export function TerminalPane({
                     className="terminal-tab-main"
                     role="tab"
                     aria-selected={isActive}
+                    aria-label={tab.title}
                     title={runtime?.session?.cwd || tab.projectPath || tab.title}
                     onClick={() => focusTerminal(tab.id)}
                   >
@@ -1288,6 +1303,7 @@ export function TerminalPane({
           </button>
         </div>
 
+        <div className="terminal-mobile-action">{mobileHeaderEnd}</div>
       </header>
 
       <div

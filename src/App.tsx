@@ -237,6 +237,7 @@ export function App() {
   const [terminalControlRequest, setTerminalControlRequest] = useState<TerminalPaneControlRequest | null>(null);
   const [sessionResumeRequest, setSessionResumeRequest] = useState<CodexSessionResumeRequest | null>(null);
   const [terminalControlState, setTerminalControlState] = useState<TerminalPaneControlState>({
+    viewMode: "terminal",
     displayMode: "tiles",
     canInterrupt: false,
     canRestart: true,
@@ -444,7 +445,7 @@ export function App() {
     };
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement;
-      if (!settingsMenuRef.current?.contains(target) && !target.closest(".settings-popover")) {
+      if (!settingsMenuRef.current?.contains(target) && !target.closest(".settings-popover, .terminal-mobile-action")) {
         setSettingsOpen(false);
       }
     };
@@ -1491,6 +1492,18 @@ export function App() {
               </button>
             </header>
 
+            <div className="settings-row settings-view-mode">
+              <span className="settings-row-label">显示内容</span>
+              <div className="settings-segments" role="group" aria-label="显示模式">
+                <button type="button" aria-pressed={terminalControlState.viewMode === "terminal"}
+                  className={terminalControlState.viewMode === "terminal" ? "active" : ""}
+                  onClick={() => requestTerminalControl("show-terminal", true)}>终端</button>
+                <button type="button" aria-pressed={terminalControlState.viewMode === "dialog"}
+                  className={terminalControlState.viewMode === "dialog" ? "active" : ""}
+                  onClick={() => requestTerminalControl("show-dialog", true)}>对话</button>
+              </div>
+            </div>
+
             <div className="settings-row">
               <span className="settings-row-label">终端布局</span>
               <div className="settings-segments" role="group" aria-label="终端显示方式">
@@ -1705,6 +1718,19 @@ export function App() {
 
         {isStateLoaded && (
           <TerminalPane
+            mobileHeaderStart={
+              <button className="icon-button mobile-project-menu-button" title="切换项目"
+                aria-expanded={mobileProjectsOpen} onClick={() => setMobileProjectsOpen(true)}>
+                <PanelLeftOpen size={18} />
+              </button>
+            }
+            mobileHeaderEnd={
+              <button className={`settings-trigger ${settingsOpen ? "active" : ""}`}
+                aria-label="设置" title="设置" aria-haspopup="dialog" aria-expanded={settingsOpen}
+                onClick={() => setSettingsOpen(open => !open)}>
+                <Settings size={18} />
+              </button>
+            }
             activeProjectId={currentProject?.id || null}
             activeProjectName={currentProject?.name || null}
             activeProjectPath={currentProject?.path || null}

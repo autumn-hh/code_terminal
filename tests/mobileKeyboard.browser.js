@@ -3,6 +3,10 @@
 async page => {
   if (!['127.0.0.1', 'localhost'].includes(new URL(page.url()).hostname)) throw Error('Local fixture only');
   const check = (ok, message) => { if (!ok) throw Error(message); };
+  const switchView = async name => {
+    await page.getByRole('button', {name: '设置', exact: true}).click();
+    await page.getByRole('dialog', {name: '工作区设置', exact: true}).getByRole('button', {name, exact: true}).click();
+  };
   const results = [], writes = [];
   let socket, sessionId, rows = 24, uploads = 0;
   const cdp = await page.context().newCDPSession(page);
@@ -96,8 +100,8 @@ async page => {
   await page.getByRole('button', {name: '设置', exact: true}).click();
   await input.focus(); await viewport(420); await measure('large-text-420', 235);
   await naturalViewport();
-  check(await page.getByRole('button', {name: '对话', exact: true}).isVisible(), 'View switch restores');
-  await page.getByRole('button', {name: '对话', exact: true}).click();
+  check(await page.locator('.terminal-bar').isVisible(), 'Navigation restores');
+  await switchView('对话');
   const attachmentDraft = await input.inputValue();
   await input.fill('请检查移动端键盘打开后的可读内容');
   await input.press('Enter');
@@ -105,7 +109,7 @@ async page => {
   await input.focus(); await viewport(420); await measure('dialog-420', 235);
   check((await page.getByLabel('对话记录', {exact: true}).innerText()).includes('请检查移动端'), 'Dialog text must remain visible');
   await naturalViewport();
-  await page.getByRole('button', {name: '终端', exact: true}).click();
+  await switchView('终端');
   await input.focus();
   await page.setViewportSize({width: 390, height: 420}); await measure('layout-420', 235);
   check(await compact(), 'Layout resize must compact too');

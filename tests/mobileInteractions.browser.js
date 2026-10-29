@@ -4,6 +4,10 @@ async (page) => {
   if (!['127.0.0.1', 'localhost'].includes(new URL(page.url()).hostname)) {
     throw new Error('Run this fixture only against a local test server');
   }
+  const switchView = async name => {
+    if (!await page.locator('.terminal-view-switch').isVisible()) await page.getByRole('button',{name:'设置',exact:true}).click();
+    await page.getByRole('button',{name,exact:true}).click();
+  };
   const writes = [];
   let socket;
   const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -96,7 +100,7 @@ async (page) => {
   await page.waitForTimeout(50);
   check(writes.length===1 && writes[0].data==='\x1bOA','Shortcut must respect application cursor mode');
   await output('\x1b[?1l');
-  await page.getByRole('button',{name:'对话',exact:true}).click();
+  await switchView('对话');
   for(let i=0;i<12;i++){await input.fill(`长命令-${i}-`+'continuous_code_'.repeat(5));await input.press('Enter');}
   const log=page.getByLabel('对话记录',{exact:true});
   await page.waitForTimeout(200);
@@ -105,8 +109,8 @@ async (page) => {
   const position=await log.evaluate(el=>el.scrollTop);
   await output('\x1b[3;1H\x1b[2m新增思考过程，不应打断阅读\x1b[0m');
   check(Math.abs(await log.evaluate(el=>el.scrollTop)-position)<3,'Incoming output must preserve reading position');
-  await page.getByRole('button',{name:'终端',exact:true}).click();
-  await page.getByRole('button',{name:'对话',exact:true}).click();
+  await switchView('终端');
+  await switchView('对话');
   await page.waitForTimeout(200);
   check(Math.abs(await log.evaluate(el=>el.scrollTop)-position)<3,'Switching views must preserve reading position');
   await page.getByRole('button',{name:'↓ 回到最新',exact:true}).click();
@@ -119,7 +123,7 @@ async (page) => {
     await page.setViewportSize({width,height});
     await page.waitForTimeout(400);
     const bounds=await page.evaluate(()=>{
-      const toolbar=document.querySelector('.terminal-session-toolbar').getBoundingClientRect();
+      const toolbar=document.querySelector('.terminal-bar').getBoundingClientRect();
       const content=document.querySelector('.terminal-session-content').getBoundingClientRect();
       const form=document.querySelector('.terminal-composer').getBoundingClientRect();
       return {overlap:toolbar.bottom>content.top+1,overflow:document.documentElement.scrollWidth>innerWidth,formBottom:form.bottom,height:innerHeight,logOverflow:document.querySelector('.terminal-dialog-log').scrollWidth>document.querySelector('.terminal-dialog-log').clientWidth};
@@ -135,10 +139,10 @@ async (page) => {
   await page.getByRole('spinbutton',{name:'字号',exact:true}).press('Tab');
   await page.screenshot({path:'output/playwright/mobile-settings-360.png'});
   await page.getByRole('button',{name:'隐藏顶部',exact:true}).click();
-  check(!await page.locator('.terminal-session-toolbar').isVisible(),'Toolbar must hide');
+  check(!await page.locator('.terminal-bar').isVisible(),'Navigation must hide');
   await page.screenshot({path:'output/playwright/mobile-hidden-360.png'});
   await page.getByRole('button',{name:'显示顶部功能',exact:true}).click();
-  check(await page.locator('.terminal-session-toolbar').isVisible(),'Toolbar must restore');
+  check(await page.locator('.terminal-bar').isVisible(),'Navigation must restore');
   await input.fill('长命令'+'abc0123456789'.repeat(30));
   await page.screenshot({path:'output/playwright/mobile-long-input-360.png'});
   await input.fill('');
@@ -168,7 +172,7 @@ async (page) => {
         overflow:document.documentElement.scrollWidth>innerWidth};
     });
     check(bounds.visible && bounds.insideForm && bounds.targets && !bounds.overflow,'Foldable bounds failed: '+JSON.stringify(bounds));
-    const toolbar=await page.locator('.terminal-session-toolbar').boundingBox();
+    const toolbar=await page.locator('.terminal-bar').boundingBox();
     const content=await page.locator('.terminal-session-content').boundingBox();
     check(toolbar.y+toolbar.height<=content.y+1,'Touch toolbar must not cover terminal content');
     if(width>720){
@@ -190,7 +194,7 @@ async (page) => {
       await settings.getByRole('textbox',{name:'光标',exact:true}).scrollIntoViewIfNeeded();
       if(height>700) await page.screenshot({path:'output/playwright/tablet-settings-'+width+'x'+height+'.png'});
       await page.getByRole('button',{name:'隐藏顶部',exact:true}).click();
-      check(!await page.locator('.terminal-session-toolbar').isVisible(),'Tablet chrome must hide');
+      check(!await page.locator('.terminal-bar').isVisible(),'Tablet navigation must hide');
       check(await keys.isVisible(),'Hiding tablet chrome must retain shortcuts');
       await page.getByRole('button',{name:'显示顶部功能',exact:true}).click();
     }
@@ -209,7 +213,7 @@ async (page) => {
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.setViewportSize({width:1280,height:820});
   check(!await page.locator('.terminal-composer-keys').isVisible(),'Desktop mouse layout must keep touch shortcuts hidden');
-  await page.getByRole('button',{name:'终端',exact:true}).click();
+  await switchView('终端');
   await page.screenshot({path:'output/playwright/mobile-change-desktop-1280.png'});
   return {passed:['mobile beforeinput','empty Enter/button','Shift+Enter','Chinese composition','Tab completion without submit','delayed bracketed paste','touch shell history without keyboard','alternate TUI navigation','SGR mouse wheel','application cursor mode','reading position across output and switches','return to latest','390/360/320 and keyboard-height boundaries','22px text','hide/restore toolbar','long input','collapse/expand','horizontal shortcuts','desktop switch']};
 }
