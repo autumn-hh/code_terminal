@@ -56,6 +56,26 @@ async (page) => {
   await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
   check((await grip().boundingBox()).y<historyBottom,'History wheel must move the scrollbar');
   check(writes.length===0,'History wheel must not send terminal input');
+  // X10 enables clicks only: wheel, touch, and grip still own real scrollback.
+  await output('\x1b[?9h');
+  check(await grip().getAttribute('role')==='slider','X10 must retain real history geometry');
+  const x10Position=Number(await grip().getAttribute('aria-valuenow'));
+  await page.mouse.wheel(0,-120); await page.waitForTimeout(150);
+  check(Number(await grip().getAttribute('aria-valuenow'))<x10Position,'X10 wheel must synchronize real history');
+  await dragTo(0,true);
+  check(Number(await grip().getAttribute('aria-valuenow'))===0,'X10 touch grip must seek real history');
+  check(writes.length===0,'X10 history navigation must not send terminal input');
+  // A normal-buffer app may own the wheel while old shell scrollback remains.
+  for(const mode of [1000,1002,1003]){
+    await output('\x1b[?'+mode+'h\x1b[?1006h');
+    check(await grip().getAttribute('role')===null,'Wheel-aware normal-buffer TUI must not claim shell history as its content');
+    const previous=writes.length;
+    await grip().press('ArrowUp');await page.waitForTimeout(150);
+    check(writes.slice(previous).join('').match(/\x1b\[<64;/g)?.length===1,'One grip step must emit exactly one TUI wheel event');
+    await output('\x1b[?'+mode+'l\x1b[?1006l');
+  }
+  await output('\x1b[?9l');
+  writes.length=0;
   await dragTo(1);
   const atBottom=await grip().getAttribute('aria-valuenow');
   const edge=await grip().boundingBox();
@@ -153,6 +173,11 @@ async (page) => {
     await output('\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[HTUI responsive check');
     await dragTo(0.3,touch);
     check(await grip().getAttribute('role')===null,'TUI grip must remain available after resize');
+    const programBounds=await grip().evaluate(el=>{
+      const g=el.getBoundingClientRect(),r=el.parentElement.getBoundingClientRect();
+      return {height:g.height,expected:Math.min(r.height,Math.max(32,Math.min(72,r.height*0.1))),inside:g.top>=r.top-1&&g.bottom<=r.bottom+1};
+    });
+    check(programBounds.inside&&Math.abs(programBounds.height-programBounds.expected)<1,'TUI grip must adapt to viewport height: '+JSON.stringify(programBounds));
     await page.screenshot({path:'output/playwright/tui-drag-'+width+'x'+height+'.png'});
     await output('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
     await page.getByRole('button',{name:'对话',exact:true}).click();

@@ -58,3 +58,23 @@ window.codeTerminalPerf.enable(false);
 `python .playwright-cli/scroll-sync-public.py` 公网真实 Codex 双向滚轮与拖动同步通过，页面错误 0；新截图已回读。测试创建的 PTY 均已停止。匿名 API 401、原凭据 API 200，已有认证继续有效。本轮仅更新本产品二进制和前端，保留状态与认证配置。
 
 此前公网旧版单轮中位数 168.1ms、p95 383.1ms，连续更新间隔中位数 82.7ms。本次结果明显改善，但两轮并非同时测试，网络情况不同，不能把全部差值归因于代码。公网网络抖动和 TUI 重绘仍会影响尾延迟。报告位于本机未跟踪 `output/playwright/scroll-latency-ws-public.json`。Windows exe 已随应用构建更新。
+
+## 滚动条兼容性小修（2026-10-29）
+
+程序内部滚动的握柄改为轨道高度的 10%，限制在 32–72px，并保证不超过轨道高度；真实历史仍按可见区域占内容的比例显示。可见宽度和触控命中区域保持原样。
+
+滚轮归属与 xterm 一致：备用缓冲区、VT200/drag/any 鼠标协议由程序处理；普通缓冲区的 none/X10 使用真实历史。X10 仅报告点击，不能视作程序接管滚轮。程序只切换模式、不重绘文字时，解析完成事件也会更新控件；平常文字位移仍在渲染后确认，不按输入量虚构进度。
+
+验证记录：
+
+- `npm run test:frontend`：40/40 通过，新增普通/备用缓冲区与五种鼠标模式组合。
+- `npm run build:frontend`：TypeScript 与生产构建通过。
+- `playwright-cli run-code --filename tests/terminalQuickScroll.browser.js`：X10 真历史、普通缓冲区三种滚轮协议、模式切换、单步不重复发送、响应式握柄通过。
+- `playwright-cli run-code --filename tests/terminalScrollSync.browser.js`：180ms 延迟、忽略输入、反向、边缘按住/释放、失焦取消、视图切换通过。
+- `playwright-cli run-code --filename tests/mobileInteractions.browser.js`：移动端输入、中文组合、独立粘贴/回车、触屏历史/TUI、折叠屏和平板回归通过。
+- 本机专用服务 8788，真实 Codex 0.165.0 默认与 `--no-alt-screen`、Git 自带 `less --mouse` 与 `vim -u NONE -i NONE -n -R`（`mouse=a`），桌面双向滚轮、鼠标拖动和 390×844 触摸拖动均使文字与握柄同步。测试使用独立会话，结束后关闭测试 PTY；Codex 仅执行 `/status`。less 在 EOF 拒绝继续向下时，握柄保持不动；往返滚动另在文件中段验证。
+- 新截图已回读：360/390 手机、884×1104 平板、884×420 矮屏及 150% 显示缩放/22px 长文字。触屏是 Chromium 模拟，未覆盖真机 Safari。
+
+兼容边界：通用全屏 TUI 不公开总行数，握柄仍是相对导航，不能提供 Word 式精确总进度；无可匹配文字的整屏替换也不会猜测位移。Codex 内联模式可得到真实历史滚动条，本轮不修改默认启动命令或全局 Codex 配置。
+
+13:54（Asia/Shanghai）已静态重新部署到 `/opt/code-terminal/dist`，入口为 `index-BtHjMCdq.js`；6 个公网文件 SHA-256 与本地一致，服务 active，匿名 API 401、已有凭据 API 200。未重启后端，现有会话继续运行。入口回退文件为 `/opt/code-terminal/index.before-scroll-sync-20261029-135409.html`。`python .playwright-cli/scroll-sync-public.py` 公网真实 Codex 双向滚轮和拖动同步通过，页面错误 0，测试会话已关闭。`npm run build` 已重新生成 Windows exe。

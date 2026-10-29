@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TerminalProgramScroll, renderedRowMovement } from '../.test-dist/terminalProgramScroll.js';
+import { TerminalProgramScroll, renderedRowMovement, usesProgramScroll } from '../.test-dist/terminalProgramScroll.js';
+
+test('wheel ownership follows buffer and protocol, not mouse reporting alone', () => {
+  for (const mode of ['none', 'x10', 'vt200', 'drag', 'any']) {
+    assert.equal(usesProgramScroll('alternate', mode), true);
+    assert.equal(usesProgramScroll('normal', mode), !['none', 'x10'].includes(mode));
+  }
+});
 
 const frame = start => ['fixed title', ...Array.from({length:20}, (_, i) => 'content line '+(start+i)), 'fixed footer'];
 

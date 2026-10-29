@@ -1,5 +1,5 @@
 import { TerminalQuickScroll, type ScrollPosition } from "./TerminalQuickScroll";
-import { TerminalProgramScroll } from "./terminalProgramScroll";
+import { TerminalProgramScroll, usesProgramScroll } from "./terminalProgramScroll";
 import { terminalPerformance } from "./terminalPerformance";
 import { FitAddon } from "@xterm/addon-fit";
 import { TerminalCursorController } from "./terminalCursorController";
@@ -1946,7 +1946,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       // Let xterm encode wheel input for full-screen TUIs and mouse protocols.
       // Normal shell history stays local and never receives arrow-key input.
-      if (terminal.buffer.active.type === "alternate" || terminal.modes.mouseTrackingMode !== "none") {
+      if (usesProgramScroll(terminal.buffer.active.type, terminal.modes.mouseTrackingMode)) {
         terminal.element?.dispatchEvent(new WheelEvent("wheel", {
           deltaY: lines,
           deltaMode: WheelEvent.DOM_DELTA_LINE,
@@ -2005,7 +2005,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       if (!terminal) return;
       const perfStart = terminalPerformance.now();
       const buffer = terminal.buffer.active;
-      const program = buffer.type === "alternate" || terminal.modes.mouseTrackingMode !== "none";
+      const program = usesProgramScroll(buffer.type, terminal.modes.mouseTrackingMode);
       if (program) {
         const tracker = programScrollRef.current ??= new TerminalProgramScroll(terminal.rows);
         tracker.observe(Array.from({ length: terminal.rows }, (_, row) =>
@@ -2030,7 +2030,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     function stepTerminalScroll(lines: number) {
       const terminal = terminalRef.current;
       if (!terminal) return;
-      if (terminal.buffer.active.type === "alternate" || terminal.modes.mouseTrackingMode !== "none") {
+      if (usesProgramScroll(terminal.buffer.active.type, terminal.modes.mouseTrackingMode)) {
         const screen = terminal.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
         if (!screen) return;
         // Target the TUI canvas, not the external rail. xterm's fallback emits one key per event.
@@ -2884,6 +2884,13 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         syncScrollbackAvailability();
       });
       const scrollbackBufferDisposable = terminal.buffer.onBufferChange(syncScrollbackAvailability);
+      const scrollModeDisposable = terminal.onWriteParsed(() => {
+        // Mode-only escape sequences need not trigger a render or buffer change.
+        // Only synchronize on ownership changes; ordinary output stays onRender.
+        if (usesProgramScroll(terminal.buffer.active.type, terminal.modes.mouseTrackingMode) !== Boolean(programScrollRef.current)) {
+          syncTerminalQuickScroll();
+        }
+      });
       const scrollPositionDisposable = terminal.onScroll(() => {
         syncTerminalQuickScroll();
         if (viewModeRef.current === "terminal") {
@@ -3021,6 +3028,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         terminalPerformance.forget(tabId);
         scrollbackRenderDisposable.dispose();
         scrollbackBufferDisposable.dispose();
+        scrollModeDisposable.dispose();
         scrollPositionDisposable.dispose();
         dataDisposable.dispose();
         unlistenOutput.then((unlisten) => unlisten());

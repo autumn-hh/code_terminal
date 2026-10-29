@@ -25,7 +25,10 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep }: Props)
   const available = value.program || value.max > 0;
   const percentage = value.max > 0 ? Math.round(value.position / value.max * 100) : 0;
   const fraction = value.max > 0 ? Math.max(0, Math.min(1, value.position / value.max)) : 0;
-  const thumbHeight = value.program ? 'min(48px, 100%)' : 'clamp(32px, ' + value.viewport / Math.max(1, value.max + value.viewport) * 100 + '%, 100%)';
+  // A program does not expose its total content height. Size its grip for the
+  // available track, without presenting the estimated range as a content ratio.
+  const thumbHeight = value.program ? 'min(100%, clamp(32px, 10%, 72px))'
+    : 'min(100%, max(32px, ' + value.viewport / Math.max(1, value.max + value.viewport) * 100 + '%))';
 
   function stopEdgeScroll() {
     edgeDirectionRef.current = 0;

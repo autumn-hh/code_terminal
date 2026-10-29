@@ -1,3 +1,5 @@
+import type { IModes } from '@xterm/xterm';
+
 // A TUI does not publish its total history. The range is estimated, but movement
 // must come from matching rendered text, never from wheel deltas or sent keys.
 export class TerminalProgramScroll {
@@ -63,4 +65,11 @@ export function renderedRowMovement(before: string[], after: string[]): number |
   const ranked = [...votes].sort((a, b) => b[1] - a[1]);
   if (!ranked.length || ranked[0][1] < 2 || (ranked[1] && ranked[0][1] <= ranked[1][1])) return null;
   return ranked[0][0];
+}
+
+// Match xterm's wheel ownership. X10 reports presses only, so normal-buffer
+// wheel/touch/drag must keep using real history. Other mouse protocols own the
+// wheel even in the normal buffer; old shell history is not their content range.
+export function usesProgramScroll(bufferType: 'normal' | 'alternate', mouseMode: IModes['mouseTrackingMode']) {
+  return bufferType === 'alternate' || (mouseMode !== 'none' && mouseMode !== 'x10');
 }
