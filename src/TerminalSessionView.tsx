@@ -1,4 +1,5 @@
 import { TerminalQuickScroll, type ScrollPosition } from "./TerminalQuickScroll";
+import { TerminalProgramScroll } from "./terminalProgramScroll";
 import { FitAddon } from "@xterm/addon-fit";
 import { TerminalCursorController } from "./terminalCursorController";
 import { TerminalCursorOutputFilter } from "./terminalCursorOutputFilter";
@@ -251,6 +252,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const dialogScrollTopRef = useRef(0);
     const [showLatest, setShowLatest] = useState(false);
     const [dialogScroll, setDialogScroll] = useState<ScrollPosition>({ position: 0, max: 0, viewport: 0 });
+    const programScrollRef = useRef<TerminalProgramScroll | null>(null);
     const [terminalScroll, setTerminalScroll] = useState<ScrollPosition>({ position: 0, max: 0, viewport: 0 });
     const startingSessionIdRef = useRef<string | null>(null);
     const pendingStartSessionRef = useRef(false);
@@ -1999,8 +2001,17 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const terminal = terminalRef.current;
       if (!terminal) return;
       const buffer = terminal.buffer.active;
-      const next = { position: buffer.viewportY, max: buffer.baseY, viewport: terminal.rows,
-        program: buffer.type === "alternate" || terminal.modes.mouseTrackingMode !== "none" };
+      const program = buffer.type === "alternate" || terminal.modes.mouseTrackingMode !== "none";
+      if (program) {
+        const tracker = programScrollRef.current ??= new TerminalProgramScroll(terminal.rows);
+        tracker.observe(Array.from({ length: terminal.rows }, (_, row) =>
+          buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? ""), terminal.cols, performance.now());
+      } else {
+        programScrollRef.current = null;
+      }
+      const tracker = programScrollRef.current;
+      const next = { position: tracker ? tracker.range - tracker.distance : buffer.viewportY,
+        max: tracker ? tracker.range : buffer.baseY, viewport: terminal.rows, program };
       setTerminalScroll(current => current.position === next.position && current.max === next.max && current.viewport === next.viewport && current.program === next.program ? current : next);
     }
 
@@ -2267,6 +2278,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const sessionId = sessionIdRef.current;
       if (!sessionId || !data) return;
 
+      if (/^\x1b(?:\[[ABHF]|O[ABHF]|\[[56]~)/.test(data)) programScrollRef.current?.request(performance.now());
       stabilizeTerminalTuiImeForInput(data);
       revealCursorForInput({ keepSuppressedForTuiIme: true });
       invoke("terminal_write", {
@@ -2837,6 +2849,11 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       terminal.loadAddon(fit);
       terminal.open(host);
       terminalRef.current = terminal;
+      programScrollRef.current = null;
+      const recordScrollIntent = (event: WheelEvent) => {
+        if (event.deltaY && !event.ctrlKey && !event.shiftKey) programScrollRef.current?.request(performance.now());
+      };
+      host.addEventListener("wheel", recordScrollIntent, { capture: true, passive: true });
       fitRef.current = fit;
       const syncScrollbackAvailability = () => {
         syncTerminalQuickScroll();
@@ -2890,6 +2907,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const dataDisposable = terminal.onData((data) => {
         const sessionId = sessionIdRef.current;
         if (!sessionId) return;
+        if (/^\x1b(?:\[[ABHF]|O[ABHF]|\[[56]~)/.test(data)) programScrollRef.current?.request(performance.now());
         writeTuiDebugLog("xterm-data", {
           length: data.length,
           hasReturn: /[\r\n]/.test(data),
@@ -2984,6 +3002,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         terminal.textarea?.removeEventListener("blur", compositionEndListener);
         terminal.attachCustomKeyEventHandler(() => true);
         bufferDisposable.dispose();
+        host.removeEventListener("wheel", recordScrollIntent, true);
         scrollbackRenderDisposable.dispose();
         scrollbackBufferDisposable.dispose();
         scrollPositionDisposable.dispose();
@@ -3108,7 +3127,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           />
           <TerminalQuickScroll
             key={viewMode + (viewMode === 'terminal' && terminalScroll.program ? '-program' : '-history')}
-            terminalHost={hostRef}
             value={viewMode === "dialog" ? dialogScroll : terminalScroll}
             label={viewMode === "dialog" ? "对话记录" : terminalScroll.program ? "TUI 滚动" : "终端历史"}
             onPosition={position => {

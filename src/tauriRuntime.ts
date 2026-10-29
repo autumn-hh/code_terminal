@@ -3,6 +3,7 @@ import { listen as tauriListen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { defaultTerminalAppearance } from "./terminalThemes";
+import { TerminalInputQueue } from "./terminalInputQueue";
 import type { OpenDialogOptions, OpenDialogReturn } from "@tauri-apps/plugin-dialog";
 import type { EventCallback, EventName, Options, UnlistenFn } from "@tauri-apps/api/event";
 import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
@@ -21,6 +22,7 @@ let serverToken: string | null | undefined;
 let serverEventsSocket: WebSocket | null = null;
 let serverEventsReady: Promise<void> | null = null;
 const serverEventHandlers = new Map<string, Set<EventCallback<unknown>>>();
+const serverInputQueue = new TerminalInputQueue((sessionId, data) => serverInvoke<void>("terminal_write", { sessionId, data }));
 
 const previewState: WorkbenchState = {
   projects: [],
@@ -301,6 +303,10 @@ export function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOption
   }
 
   if (isServerRuntime()) {
+    if (cmd === "terminal_write" && args && typeof args === "object" &&
+        "sessionId" in args && typeof args.sessionId === "string" && "data" in args && typeof args.data === "string") {
+      return serverInputQueue.write(args.sessionId, args.data) as Promise<T>;
+    }
     return serverInvoke<T>(cmd, args);
   }
 

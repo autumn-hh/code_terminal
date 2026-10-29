@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { PointerEvent, RefObject } from "react";
-import { TerminalProgramScroll } from "./terminalProgramScroll";
+import { useEffect, useRef } from "react";
+import type { PointerEvent } from "react";
 
 export interface ScrollPosition {
   position: number;
@@ -14,24 +13,18 @@ interface Props {
   label: string;
   onPosition: (position: number) => void;
   onStep: (direction: number) => void;
-  terminalHost?: RefObject<HTMLDivElement>;
 }
 
-export function TerminalQuickScroll({ value, label, onPosition, onStep, terminalHost }: Props) {
+export function TerminalQuickScroll({ value, label, onPosition, onStep }: Props) {
   const railRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: number; offset: number; lastY: number; range: number; program: boolean } | null>(null);
-  const programScrollRef = useRef<TerminalProgramScroll | null>(null);
-  if (!programScrollRef.current) programScrollRef.current = new TerminalProgramScroll(value.viewport || 24);
-  const programScroll = programScrollRef.current;
-  const [, redrawProgramScroll] = useState(0);
   const edgeFrameRef = useRef<number | null>(null);
   const edgeDirectionRef = useRef(0);
   const stepRef = useRef(onStep);
-  const sendingStepRef = useRef(false);
   stepRef.current = onStep;
   const available = value.program || value.max > 0;
   const percentage = value.max > 0 ? Math.round(value.position / value.max * 100) : 0;
-  const fraction = value.program ? programScroll.fraction : value.max > 0 ? Math.max(0, Math.min(1, value.position / value.max)) : 0;
+  const fraction = value.max > 0 ? Math.max(0, Math.min(1, value.position / value.max)) : 0;
   const thumbHeight = value.program ? 'min(48px, 100%)' : 'clamp(32px, ' + value.viewport / Math.max(1, value.max + value.viewport) * 100 + '%, 100%)';
 
   function stopEdgeScroll() {
@@ -40,39 +33,10 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
     edgeFrameRef.current = null;
   }
 
-  function updateProgramScroll(lines: number) {
-    programScroll.scroll(lines, value.viewport);
-    redrawProgramScroll(current => current + 1);
-  }
-
   function sendStep(lines: number) {
-    if (!lines) return;
-    const sent = value.program ? Math.max(-40, Math.min(40, Math.round(lines))) : lines;
-    if (!sent) return;
-    // Account for the bounded movement once; xterm dispatches wheel synchronously.
-    sendingStepRef.current = true;
-    try { stepRef.current(sent); } finally { sendingStepRef.current = false; }
-    if (value.program) updateProgramScroll(sent);
+    const step = value.program ? Math.max(-3, Math.min(3, Math.round(lines))) : lines;
+    if (step) stepRef.current(step);
   }
-
-  useEffect(() => {
-    const host = terminalHost?.current;
-    if (!value.program || !host) return;
-    const syncWheel = (event: WheelEvent) => {
-      if (sendingStepRef.current || event.ctrlKey || event.shiftKey || !event.deltaY) return;
-      const screenHeight = host.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? host.clientHeight;
-      const lineHeight = Math.max(1, screenHeight / Math.max(1, value.viewport));
-      const lines = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY
-        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? event.deltaY * value.viewport : event.deltaY / lineHeight;
-      // Follow native wheel and synthesized touch wheel before xterm stops propagation.
-      // This is relative movement: program-managed TUIs do not expose a total history size.
-      dragRef.current = null;
-      stopEdgeScroll();
-      updateProgramScroll(lines);
-    };
-    host.addEventListener('wheel', syncWheel, { capture: true, passive: true });
-    return () => host.removeEventListener('wheel', syncWheel, true);
-  }, [terminalHost, value.program, value.viewport]);
 
   useEffect(() => {
     const cancel = () => { dragRef.current = null; stopEdgeScroll(); };
@@ -125,7 +89,7 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
       return;
     }
     dragRef.current = { id: event.pointerId, offset: event.clientY - thumb.getBoundingClientRect().top,
-      lastY: event.clientY, range: programScroll.range, program: Boolean(value.program) };
+      lastY: event.clientY, range: value.max, program: Boolean(value.program) };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -143,7 +107,9 @@ export function TerminalQuickScroll({ value, label, onPosition, onStep, terminal
       const delta = event.clientY - drag.lastY;
       drag.lastY = event.clientY;
       const next = distance > 0 ? Math.max(0, Math.min(1, (event.clientY - rect.top - drag.offset) / distance)) : 0;
-      sendStep(programScroll.stepTo(next, drag.range));
+      // Pointer travel only: do not repeatedly resend the unacknowledged target
+      // distance while a remote TUI is still rendering the previous request.
+      sendStep(distance > 0 ? delta / distance * drag.range : 0);
       setEdgeScroll(next === 0 && delta < 0 ? -1 : next === 1 && delta > 0 ? 1 : 0);
       return;
     }
