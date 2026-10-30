@@ -203,6 +203,7 @@ export function App() {
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [backgroundMenuOpen, setBackgroundMenuOpen] = useState(false);
   const [mobileProjectsOpen, setMobileProjectsOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [mobileChromeHidden, setMobileChromeHidden] = useState(readStoredMobileChromeHidden);
@@ -242,6 +243,7 @@ export function App() {
   const [webSessionLeaseSupported, setWebSessionLeaseSupported] = useState(false);
   const [backgroundSessions, setBackgroundSessions] = useState<ServerTerminalSession[]>([]);
   const [backgroundSessionsError, setBackgroundSessionsError] = useState<string | null>(null);
+  const [backgroundSessionsLoading, setBackgroundSessionsLoading] = useState(false);
   const [backgroundSessionBusy, setBackgroundSessionBusy] = useState<string | null>(null);
   const [terminalControlState, setTerminalControlState] = useState<TerminalPaneControlState>({
     sessionId: null,
@@ -256,6 +258,8 @@ export function App() {
   });
   const projectListRef = useRef<HTMLElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const backgroundTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const backgroundPopoverRef = useRef<HTMLElement | null>(null);
   const terminalControlRequestIdRef = useRef(0);
   const sessionResumeRequestIdRef = useRef(0);
   const terminalAttachRequestIdRef = useRef(0);
@@ -365,18 +369,49 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!settingsOpen || isTauriRuntime()) return;
+    if (!isStateLoaded || isTauriRuntime()) return;
     let cancelled = false;
     setBackgroundSessionsError(null);
+    setBackgroundSessionsLoading(settingsOpen || backgroundMenuOpen);
     void supportsServerSessionLease().then(async supported => {
       if (cancelled) return;
       setWebSessionLeaseSupported(supported);
-      if (!supported) return;
+      if (!supported || (!settingsOpen && !backgroundMenuOpen)) return;
       const sessions = await invoke<ServerTerminalSession[]>("terminal_sessions");
       if (!cancelled) setBackgroundSessions(sessions.filter(session => session.keepAlive));
-    }).catch(error => { if (!cancelled) setBackgroundSessionsError(String(error)); });
+    }).catch(error => { if (!cancelled) setBackgroundSessionsError(String(error)); })
+      .finally(() => { if (!cancelled) setBackgroundSessionsLoading(false); });
     return () => { cancelled = true; };
-  }, [settingsOpen, terminalControlState.keepAlive, terminalControlState.sessionId]);
+  }, [isStateLoaded, settingsOpen, backgroundMenuOpen, terminalControlState.keepAlive, terminalControlState.sessionId]);
+
+  useEffect(() => {
+    if (settingsOpen) setBackgroundMenuOpen(false);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!backgroundMenuOpen || settingsOpen) return;
+    // Focus a non-input control so opening the panel never opens a phone keyboard.
+    backgroundPopoverRef.current?.querySelector<HTMLButtonElement>(".background-popover-close")?.focus({ preventScroll: true });
+    const close = () => {
+      setBackgroundMenuOpen(false);
+      backgroundTriggerRef.current?.focus({ preventScroll: true });
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close(); }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!backgroundPopoverRef.current?.contains(target) && !backgroundTriggerRef.current?.contains(target)) {
+        setBackgroundMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [backgroundMenuOpen, settingsOpen]);
 
   useEffect(() => {
     let resizeFrame: number | null = null;
@@ -1031,6 +1066,71 @@ export function App() {
     });
   }
 
+  function renderBackgroundControls() {
+    if (isTauriRuntime() || !webSessionLeaseSupported) return null;
+    return (
+      <section className="settings-session-lifecycle" aria-label="网页会话保留">
+        <div className="settings-row settings-background-row">
+          <span className="settings-row-label">后台保留</span>
+          <div className="settings-background-control" aria-busy={terminalControlState.backgroundBusy}>
+            <label className="settings-background-toggle">
+              <span>关闭网页后继续运行</span>
+              <span className="settings-background-switch">
+                <input type="checkbox" aria-label="后台保留当前会话"
+                  aria-describedby="background-session-hint" checked={terminalControlState.keepAlive}
+                  disabled={!terminalControlState.backgroundSupported || terminalControlState.backgroundBusy}
+                  onChange={() => requestTerminalControl("toggle-background")} />
+                <span className="settings-background-switch-track" aria-hidden="true" />
+              </span>
+            </label>
+            <p id="background-session-hint">{terminalControlState.backgroundBusy
+              ? "正在更新…"
+              : terminalControlState.keepAlive
+                ? "已开启 · 下次可在此打开，停止或关闭终端会结束任务。"
+                : "断开 10 分钟后回收，长任务可开启保留。"}</p>
+          </div>
+        </div>
+        {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).length > 0 && (
+          <div className="settings-background-list">
+            <div className="settings-background-list-heading">后台会话<span>打开可继续</span></div>
+            <ul className="settings-background-sessions" aria-label="后台保留的会话">
+              {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).map(session => (
+                <li key={session.sessionId}>
+                  <span className="settings-background-session-name" title={`${session.cwd} · ${session.sessionId}`}>
+                    {session.cwd}<small>{session.shell} · {session.sessionId.slice(0, 8)}</small>
+                  </span>
+                  <button type="button" className="settings-background-open" disabled={backgroundSessionBusy !== null}
+                    aria-label={`打开后台会话 ${session.cwd}`}
+                    onClick={() => {
+                      setTerminalAttachRequest({ id: ++terminalAttachRequestIdRef.current, session });
+                      setSettingsOpen(false);
+                      setBackgroundMenuOpen(false);
+                    }}>打开</button>
+                  <button type="button" className="settings-background-stop" disabled={backgroundSessionBusy !== null}
+                    aria-label={`结束后台会话 ${session.cwd}`}
+                    onClick={() => {
+                      setBackgroundSessionBusy(session.sessionId);
+                      setBackgroundSessionsError(null);
+                      void invoke("terminal_stop", { sessionId: session.sessionId }).then(() => {
+                        setBackgroundSessions(current => current.filter(item => item.sessionId !== session.sessionId));
+                      }).catch(error => setBackgroundSessionsError(String(error)))
+                        .finally(() => setBackgroundSessionBusy(null));
+                    }}>结束</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {backgroundMenuOpen && !settingsOpen && backgroundSessionsLoading && <p className="background-menu-status" role="status">正在加载后台会话…</p>}
+        {backgroundMenuOpen && !settingsOpen && !backgroundSessionsLoading && !backgroundSessionsError &&
+          !backgroundSessions.some(session => session.sessionId !== terminalControlState.sessionId) && (
+            <p className="background-menu-status">暂无其他后台会话。开启保留后，下次可从这里继续。</p>
+          )}
+        {backgroundSessionsError && <p role="alert">{backgroundSessionsError}</p>}
+      </section>
+    );
+  }
+
   return (
     <main
       className={`shell ${isSidebarCollapsed ? "sidebar-collapsed" : ""} ${
@@ -1582,61 +1682,7 @@ export function App() {
               </div>
             </div>
 
-            {!isTauriRuntime() && webSessionLeaseSupported && (
-              <section className="settings-session-lifecycle" aria-label="网页会话保留">
-                <div className="settings-row settings-background-row">
-                  <span className="settings-row-label">后台保留</span>
-                  <div className="settings-background-control" aria-busy={terminalControlState.backgroundBusy}>
-                    <label className="settings-background-toggle">
-                      <span>关闭网页后继续运行</span>
-                      <span className="settings-background-switch">
-                        <input type="checkbox" aria-label="后台保留当前会话"
-                          aria-describedby="background-session-hint" checked={terminalControlState.keepAlive}
-                          disabled={!terminalControlState.backgroundSupported || terminalControlState.backgroundBusy}
-                          onChange={() => requestTerminalControl("toggle-background")} />
-                        <span className="settings-background-switch-track" aria-hidden="true" />
-                      </span>
-                    </label>
-                    <p id="background-session-hint">{terminalControlState.backgroundBusy
-                      ? "正在更新…"
-                      : terminalControlState.keepAlive
-                        ? "已开启 · 下次可在此打开，停止或关闭终端会结束任务。"
-                        : "断开 10 分钟后回收，长任务可开启保留。"}</p>
-                  </div>
-                </div>
-                {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).length > 0 && (
-                  <div className="settings-background-list">
-                    <div className="settings-background-list-heading">后台会话<span>打开可继续</span></div>
-                    <ul className="settings-background-sessions" aria-label="后台保留的会话">
-                      {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).map(session => (
-                        <li key={session.sessionId}>
-                          <span className="settings-background-session-name" title={`${session.cwd} · ${session.sessionId}`}>
-                            {session.cwd}<small>{session.shell} · {session.sessionId.slice(0, 8)}</small>
-                          </span>
-                          <button type="button" className="settings-background-open" disabled={backgroundSessionBusy !== null}
-                            aria-label={`打开后台会话 ${session.cwd}`}
-                            onClick={() => {
-                              setTerminalAttachRequest({ id: ++terminalAttachRequestIdRef.current, session });
-                              setSettingsOpen(false);
-                            }}>打开</button>
-                          <button type="button" className="settings-background-stop" disabled={backgroundSessionBusy !== null}
-                            aria-label={`结束后台会话 ${session.cwd}`}
-                            onClick={() => {
-                              setBackgroundSessionBusy(session.sessionId);
-                              setBackgroundSessionsError(null);
-                              void invoke("terminal_stop", { sessionId: session.sessionId }).then(() => {
-                                setBackgroundSessions(current => current.filter(item => item.sessionId !== session.sessionId));
-                              }).catch(error => setBackgroundSessionsError(String(error)))
-                                .finally(() => setBackgroundSessionBusy(null));
-                            }}>结束</button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {backgroundSessionsError && <p role="alert">{backgroundSessionsError}</p>}
-              </section>
-            )}
+            {renderBackgroundControls()}
 
             {currentProject && (
               <div className="settings-row settings-project-actions">
@@ -1798,8 +1844,33 @@ export function App() {
           </section>
         )}
 
+        {backgroundMenuOpen && !settingsOpen && webSessionLeaseSupported && (
+          <section ref={backgroundPopoverRef} id="background-session-popover"
+            className="settings-popover background-session-popover" role="dialog" aria-label="后台会话">
+            <header className="settings-popover-header">
+              <strong>后台会话</strong>
+              <button className="background-popover-close" type="button" title="关闭后台会话面板"
+                onClick={() => { setBackgroundMenuOpen(false); backgroundTriggerRef.current?.focus({ preventScroll: true }); }}>
+                <X size={15} />
+              </button>
+            </header>
+            {renderBackgroundControls()}
+          </section>
+        )}
+
         {isStateLoaded && (
           <TerminalPane
+            headerActions={!isTauriRuntime() && webSessionLeaseSupported ? (
+              <button ref={backgroundTriggerRef} type="button"
+                className={`terminal-background-trigger ${terminalControlState.keepAlive ? "retained" : ""} ${backgroundMenuOpen && !settingsOpen ? "active" : ""}`}
+                title={terminalControlState.keepAlive ? "当前会话已后台保留 · 管理后台会话" : "后台保留与打开后台会话"}
+                aria-label={terminalControlState.keepAlive ? "后台会话，当前已保留" : "后台会话"}
+                aria-haspopup="dialog" aria-controls="background-session-popover" aria-expanded={backgroundMenuOpen && !settingsOpen}
+                onClick={() => { setSettingsOpen(false); setBackgroundMenuOpen(open => !open); }}>
+                <span className="terminal-background-dot" aria-hidden="true" />
+                <span>后台</span>
+              </button>
+            ) : null}
             mobileHeaderStart={
               <button className="icon-button mobile-project-menu-button" title="切换项目"
                 aria-expanded={mobileProjectsOpen} onClick={() => setMobileProjectsOpen(true)}>

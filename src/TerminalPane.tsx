@@ -29,6 +29,7 @@ import type { ServerTerminalSession, TerminalAppearanceSettings, TerminalCommand
 interface TerminalPaneProps {
   mobileHeaderStart?: ReactNode;
   mobileHeaderEnd?: ReactNode;
+  headerActions?: ReactNode;
   activeProjectId?: string | null;
   activeProjectName?: string | null;
   activeProjectPath?: string | null;
@@ -422,6 +423,7 @@ function getGridCellStyle(
 export function TerminalPane({
   mobileHeaderStart,
   mobileHeaderEnd,
+  headerActions,
   activeProjectId,
   activeProjectName,
   activeProjectPath,
@@ -1187,6 +1189,15 @@ export function TerminalPane({
       inline: "nearest",
       behavior: "smooth",
     });
+    const strip = terminalTabsRef.current;
+    if (!strip) return;
+    const observer = new ResizeObserver(() => {
+      if (strip.clientWidth === 0) return;
+      // The background entry and folding can reduce the space for tabs.
+      terminalTabElementsRef.current[terminalTabs.activeTabId]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    observer.observe(strip);
+    return () => observer.disconnect();
   }, [terminalTabs.activeTabId, terminalTabs.tabs.length]);
 
   useEffect(() => {
@@ -1334,6 +1345,7 @@ export function TerminalPane({
           </button>
         </div>
 
+        {headerActions}
         <div className="terminal-mobile-action">{mobileHeaderEnd}</div>
       </header>
 
