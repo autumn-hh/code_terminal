@@ -3803,35 +3803,153 @@ textarea {
 .settings-session-lifecycle {
   grid-column: 1 / -1;
   min-width: 0;
-  padding: 8px 0;
-  border-top: 1px solid var(--terminal-border);
+}
+
+.settings-background-row {
+  align-items: start;
+}
+
+.settings-background-row > .settings-row-label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.settings-background-control {
+  min-width: 0;
 }
 
 .settings-background-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 44px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.5;
   cursor: pointer;
 }
 
-.settings-background-toggle input { width: 18px; height: 18px; flex: 0 0 auto; }
+.settings-background-toggle > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-background-switch {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  height: 44px;
+}
+
+.settings-background-switch input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.settings-background-switch-track {
+  position: relative;
+  width: 36px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--terminal-muted) 55%, var(--terminal-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--terminal-fg) 9%, transparent);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.settings-background-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--terminal-muted);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.settings-background-switch input:checked + .settings-background-switch-track {
+  border-color: var(--terminal-accent);
+  background: var(--terminal-accent);
+}
+
+.settings-background-switch input:checked + .settings-background-switch-track::after {
+  transform: translateX(14px);
+  background: var(--terminal-bg);
+}
+
+.settings-background-toggle:hover .settings-background-switch-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--terminal-fg) 6%, transparent);
+}
+
+.settings-background-switch input:focus-visible + .settings-background-switch-track {
+  outline: 2px solid var(--terminal-accent);
+  outline-offset: 3px;
+}
+
+.settings-background-toggle:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .settings-session-lifecycle p {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--terminal-muted);
   overflow-wrap: anywhere;
 }
 
-.settings-background-sessions { padding: 0; margin: 0; list-style: none; }
+.settings-session-lifecycle p[role="alert"] {
+  margin-top: 8px;
+  color: var(--terminal-fg);
+}
+
+.settings-background-list {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--terminal-border) 72%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--terminal-fg) 3%, transparent);
+}
+
+.settings-background-list-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.settings-background-list-heading span {
+  color: var(--terminal-muted);
+  font-weight: 400;
+}
+
+.settings-background-sessions { display: grid; gap: 4px; padding: 0; margin: 0; list-style: none; }
 .settings-background-sessions li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px 44px;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  padding: 4px 0;
+}
+.settings-background-sessions li + li {
+  border-top: 1px solid color-mix(in srgb, var(--terminal-border) 60%, transparent);
 }
 .settings-background-session-name {
   min-width: 0;
@@ -3840,17 +3958,43 @@ textarea {
   white-space: nowrap;
   font-size: 12px;
 }
-.settings-background-session-name small { display: block; color: var(--terminal-muted); }
+.settings-background-session-name small {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--terminal-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
 .settings-background-sessions button {
   width: 44px;
   min-height: 44px;
   padding: 0;
-  border-radius: 5px;
-  color: var(--terminal-fg);
-  background: color-mix(in srgb, var(--terminal-fg) 7%, transparent);
+  border-radius: 6px;
+  color: var(--terminal-muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 620;
   cursor: pointer;
 }
+.settings-background-sessions .settings-background-open {
+  color: var(--terminal-accent);
+  background: color-mix(in srgb, var(--terminal-accent) 10%, transparent);
+}
+.settings-background-sessions button:hover:not(:disabled) {
+  color: var(--terminal-fg);
+  background: color-mix(in srgb, var(--terminal-fg) 11%, transparent);
+}
+.settings-background-sessions .settings-background-stop:hover:not(:disabled) {
+  color: #ffffff;
+  background: #a7424c;
+}
 .settings-background-sessions button:disabled { opacity: 0.5; cursor: wait; }
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-background-switch-track,
+  .settings-background-switch-track::after { transition: none; }
+}
 
 /* One navigation row on phones, unfolded devices and tablets. */
 @media (pointer: coarse), (max-width: 480px) {

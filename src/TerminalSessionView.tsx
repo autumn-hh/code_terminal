@@ -2518,11 +2518,11 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     async function flushPendingRawInput(sessionId: string) {
+      if (sessionIdRef.current !== sessionId || isLifecycleStoppingRef.current) return;
       const data = pendingRawInputRef.current;
       if (!data) return;
 
       pendingRawInputRef.current = null;
-      void sessionId;
       writeRawTerminalInput(data);
     }
 
@@ -2569,7 +2569,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       if (terminalImeCompositionActiveRef.current) return null;
 
       const hostSize = getTerminalHostSize();
-      if (!hasTerminalHostSizeChanged(hostSize)) {
+      if (!hostSize || hostSize.width <= 0 || hostSize.height <= 0 ||
+          (!options.force && !hasTerminalHostSizeChanged(hostSize))) {
         return {
           cols: terminal.cols || 100,
           rows: terminal.rows || 28,
@@ -2585,7 +2586,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     function fitAndResize(options: { force?: boolean } = {}) {
-      if (!isVisibleRef.current) return;
+      // Startup synchronizes its own resize before launching a pending TUI.
+      // Do not let a debounced resize overtake that acknowledged size.
+      if (!isVisibleRef.current || isStartingRef.current) return;
 
       const size = fitTerminal(options);
       const sessionId = sessionIdRef.current;
@@ -2602,6 +2605,23 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         cols: size.cols,
         rows: size.rows,
       }).catch(() => undefined);
+    }
+
+    async function synchronizeStartupSize(sessionId: string) {
+      // terminal_start may resolve after React has changed the visible layout.
+      // Let that layout commit, then start the TUI only after the PTY has the
+      // same dimensions as xterm. No focus or synthetic input is needed.
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+      while (isVisibleRef.current && sessionIdRef.current === sessionId && !isLifecycleStoppingRef.current) {
+        const size = fitTerminal({ force: true });
+        if (!size) return;
+        const previous = lastResizeRef.current;
+        if (previous?.cols === size.cols && previous.rows === size.rows) return;
+        await invoke("terminal_resize", { sessionId, cols: size.cols, rows: size.rows });
+        if (sessionIdRef.current !== sessionId || isLifecycleStoppingRef.current) return;
+        lastResizeRef.current = size;
+        // A keyboard or panel can move again while the request is in flight.
+      }
     }
 
     function clearScheduledResize() {
@@ -2729,8 +2749,24 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         if (!isTauriRuntime() && started.shell === "Browser preview") {
           terminal.writeln(`\x1b[38;5;245m${browserPreviewMessage}\x1b[0m`);
         }
-        scheduleFitAndResize({ force: true, settle: true });
+        if (pendingRawInputRef.current) {
+          try {
+            await synchronizeStartupSize(started.sessionId);
+          } catch (error) {
+            // The PTY already exists. Keep its stop/restart controls usable;
+            // a failed resize must neither orphan it nor launch at a stale size.
+            if (sessionIdRef.current === started.sessionId && !isLifecycleStoppingRef.current) {
+              pendingRawInputRef.current = null;
+              onError(`终端尺寸同步失败，待执行命令未发送，请重试：${String(error)}`);
+              scheduleFitAndResize({ force: true, settle: true });
+            }
+            return;
+          }
+        }
         await flushPendingRawInput(started.sessionId);
+        if (sessionIdRef.current === started.sessionId && !isLifecycleStoppingRef.current) {
+          scheduleFitAndResize({ force: true, settle: true });
+        }
       } catch (err) {
         attachingSessionRef.current = null;
         attachOutputRef.current = [];

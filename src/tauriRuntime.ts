@@ -214,7 +214,7 @@ async function serverInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
     init.body = JSON.stringify(requestArgs ?? {});
   }
 
-  const controller = ["terminal_attach", "terminal_stop", "terminal_background", "terminal_sessions"].includes(cmd)
+  const controller = ["terminal_attach", "terminal_stop", "terminal_background", "terminal_sessions", "terminal_resize"].includes(cmd)
     ? new AbortController() : null;
   const timeout = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
   if (controller) init.signal = controller.signal;

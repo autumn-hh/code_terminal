@@ -1584,41 +1584,55 @@ export function App() {
 
             {!isTauriRuntime() && webSessionLeaseSupported && (
               <section className="settings-session-lifecycle" aria-label="网页会话保留">
-                <label className="settings-background-toggle">
-                  <input type="checkbox" checked={terminalControlState.keepAlive}
-                    disabled={!terminalControlState.backgroundSupported || terminalControlState.backgroundBusy}
-                    onChange={() => requestTerminalControl("toggle-background")} />
-                  <span>后台保留当前会话</span>
-                </label>
-                <p>{terminalControlState.keepAlive
-                  ? "已开启：关闭网页后继续运行，需手动停止或关闭终端。"
-                  : "普通会话断开 10 分钟后回收。长任务可开启后台保留。"}</p>
+                <div className="settings-row settings-background-row">
+                  <span className="settings-row-label">后台保留</span>
+                  <div className="settings-background-control" aria-busy={terminalControlState.backgroundBusy}>
+                    <label className="settings-background-toggle">
+                      <span>关闭网页后继续运行</span>
+                      <span className="settings-background-switch">
+                        <input type="checkbox" aria-label="后台保留当前会话"
+                          aria-describedby="background-session-hint" checked={terminalControlState.keepAlive}
+                          disabled={!terminalControlState.backgroundSupported || terminalControlState.backgroundBusy}
+                          onChange={() => requestTerminalControl("toggle-background")} />
+                        <span className="settings-background-switch-track" aria-hidden="true" />
+                      </span>
+                    </label>
+                    <p id="background-session-hint">{terminalControlState.backgroundBusy
+                      ? "正在更新…"
+                      : terminalControlState.keepAlive
+                        ? "已开启 · 下次可在此打开，停止或关闭终端会结束任务。"
+                        : "断开 10 分钟后回收，长任务可开启保留。"}</p>
+                  </div>
+                </div>
                 {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).length > 0 && (
-                  <ul className="settings-background-sessions" aria-label="后台保留的会话">
-                    {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).map(session => (
-                      <li key={session.sessionId}>
-                        <span className="settings-background-session-name" title={`${session.cwd} · ${session.sessionId}`}>
-                          {session.cwd}<small>{session.shell} · {session.sessionId.slice(0, 8)}</small>
-                        </span>
-                        <button type="button" disabled={backgroundSessionBusy !== null}
-                          aria-label={`打开后台会话 ${session.cwd}`}
-                          onClick={() => {
-                            setTerminalAttachRequest({ id: ++terminalAttachRequestIdRef.current, session });
-                            setSettingsOpen(false);
-                          }}>打开</button>
-                        <button type="button" disabled={backgroundSessionBusy !== null}
-                          aria-label={`结束后台会话 ${session.cwd}`}
-                          onClick={() => {
-                            setBackgroundSessionBusy(session.sessionId);
-                            setBackgroundSessionsError(null);
-                            void invoke("terminal_stop", { sessionId: session.sessionId }).then(() => {
-                              setBackgroundSessions(current => current.filter(item => item.sessionId !== session.sessionId));
-                            }).catch(error => setBackgroundSessionsError(String(error)))
-                              .finally(() => setBackgroundSessionBusy(null));
-                          }}>结束</button>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="settings-background-list">
+                    <div className="settings-background-list-heading">后台会话<span>打开可继续</span></div>
+                    <ul className="settings-background-sessions" aria-label="后台保留的会话">
+                      {backgroundSessions.filter(session => session.sessionId !== terminalControlState.sessionId).map(session => (
+                        <li key={session.sessionId}>
+                          <span className="settings-background-session-name" title={`${session.cwd} · ${session.sessionId}`}>
+                            {session.cwd}<small>{session.shell} · {session.sessionId.slice(0, 8)}</small>
+                          </span>
+                          <button type="button" className="settings-background-open" disabled={backgroundSessionBusy !== null}
+                            aria-label={`打开后台会话 ${session.cwd}`}
+                            onClick={() => {
+                              setTerminalAttachRequest({ id: ++terminalAttachRequestIdRef.current, session });
+                              setSettingsOpen(false);
+                            }}>打开</button>
+                          <button type="button" className="settings-background-stop" disabled={backgroundSessionBusy !== null}
+                            aria-label={`结束后台会话 ${session.cwd}`}
+                            onClick={() => {
+                              setBackgroundSessionBusy(session.sessionId);
+                              setBackgroundSessionsError(null);
+                              void invoke("terminal_stop", { sessionId: session.sessionId }).then(() => {
+                                setBackgroundSessions(current => current.filter(item => item.sessionId !== session.sessionId));
+                              }).catch(error => setBackgroundSessionsError(String(error)))
+                                .finally(() => setBackgroundSessionBusy(null));
+                            }}>结束</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {backgroundSessionsError && <p role="alert">{backgroundSessionsError}</p>}
               </section>
