@@ -29,6 +29,10 @@ export function TerminalSelection({ terminal, hostRef, logRef, mode, visible, on
     let timer: number | undefined;
     let usingTouch = false;
     let lastText = "";
+    let snapshot: Selection | null = null;
+    let detached = false;
+    let clearing = false;
+    let nativeRange: Range | null = null;
     let replaying = false;
     let pointerSelecting = false;
     let disposed = false;
@@ -48,6 +52,7 @@ export function TerminalSelection({ terminal, hostRef, logRef, mode, visible, on
     };
     const cellEnd = (cell: number) => cell + Math.max(1, terminal.buffer.active.getLine(Math.floor(cell / terminal.cols))?.getCell(cell % terminal.cols)?.getWidth() ?? 1);
     const select = (start: number, end: number) => {
+      snapshot = null; detached = false;
       terminal.select(start % terminal.cols, Math.floor(start / terminal.cols), Math.max(1, end - start));
       sync();
     };
@@ -58,34 +63,60 @@ export function TerminalSelection({ terminal, hostRef, logRef, mode, visible, on
         y: Math.max(4, Math.min(root.clientHeight - 16, (g.screen.top - bounds.top + (y - terminal.buffer.active.viewportY + 1) * g.ch) / scale)) };
     };
     function publish(next: Selection | null) {
+      if (next && snapshot && next.text === snapshot.text && next.x === snapshot.x && next.y === snapshot.y &&
+        next.start?.x === snapshot.start?.x && next.start?.y === snapshot.start?.y &&
+        next.end?.x === snapshot.end?.x && next.end?.y === snapshot.end?.y) return;
+      snapshot = next;
       if ((next?.text ?? "") !== lastText) { lastText = next?.text ?? ""; setStatus(""); }
       setSelection(next);
     }
     function sync() {
-      if (disposed || pointerSelecting) return;
+      if (disposed || pointerSelecting || clearing) return;
       const bounds = root!.getBoundingClientRect();
       const scale = bounds.width / root!.clientWidth || 1;
       const width = Math.min(root!.clientWidth, (window.innerWidth - bounds.left) / scale);
       const viewportBottom = window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight;
       const height = Math.min(root!.clientHeight, (viewportBottom - bounds.top) / scale);
+      // Output may rewrite/erase xterm's live range. Keep the user's chosen text,
+      // but drop handles/highlights that would now point at different content.
+      const preserve = () => {
+        if (!snapshot) return;
+        const saved = snapshot;
+        detached = true;
+        setTouchSelection(false);
+        publish({text:saved.text,
+          x:Math.max(4, Math.min(width - Math.min(280, width - 8) - 4, saved.x)),
+          y:Math.max(4, Math.min(height - 84, saved.y))});
+        if (mode === 'terminal' && terminal!.hasSelection()) terminal!.clearSelection();
+      };
+      if (mode === 'terminal' && detached && snapshot) { preserve(); return; }
       if (mode === "dialog") {
         const native = window.getSelection();
-        if (!native || native.isCollapsed || !log!.contains(native.anchorNode) || !log!.contains(native.focusNode)) { publish(null); return; }
-        const rect = native.getRangeAt(0).getBoundingClientRect();
+        if (!native || native.isCollapsed || !log!.contains(native.anchorNode) || !log!.contains(native.focusNode)) { preserve(); return; }
+        const range = native.getRangeAt(0);
+        if (snapshot && nativeRange && native.toString() !== snapshot.text &&
+          range.startContainer === nativeRange.startContainer && range.startOffset === nativeRange.startOffset &&
+          range.endContainer === nativeRange.endContainer && range.endOffset === nativeRange.endOffset) { preserve(); return; }
+        // Native selection handles may change the range without page pointer events.
+        detached = false;
+        nativeRange = range.cloneRange();
+        const rect = range.getBoundingClientRect();
         const top = (rect.top - bounds.top) / scale, bottom = (rect.bottom - bounds.top) / scale;
         publish({ text: native.toString(), x: Math.max(4, Math.min(width - Math.min(280, width - 8) - 4, (rect.left - bounds.left) / scale)),
           y: Math.max(4, Math.min(height - 84, top >= 52 ? top - 52 : bottom + 8)) });
         return;
       }
       const range = terminal!.getSelectionPosition(), text = terminal!.getSelection();
-      if (!range || !text || !geometry()) { publish(null); return; }
+      if (!range || !text || !geometry() || (snapshot && text !== snapshot.text)) { preserve(); return; }
       const start = locate(range.start.x, range.start.y), end = locate(range.end.x, range.end.y);
       publish({ text, start, end, x: Math.max(4, Math.min(width - Math.min(280, width - 8) - 4, start.x)),
         y: Math.max(4, Math.min(height - 84, start.y >= 80 ? start.y - geometry()!.ch / scale - 52 : end.y + 20)) });
     }
     const clear = () => {
       cancelTimer(); touch = null; usingTouch = false; delete host.dataset.selecting;
+      clearing = true; detached = false; nativeRange = null;
       setTouchSelection(false); terminal.clearSelection(); publish(null);
+      clearing = false;
     };
     controllerRef.current = {
       clear,
@@ -168,28 +199,30 @@ export function TerminalSelection({ terminal, hostRef, logRef, mode, visible, on
       }
       sync();
     };
-    const escape = (event: KeyboardEvent) => {
+    const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && lastText) { event.preventDefault(); event.stopPropagation(); clear(); window.getSelection()?.removeAllRanges(); }
+      if (lastText && event.target instanceof Node && root.parentElement?.contains(event.target) &&
+        (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault(); event.stopPropagation();
+        void copyTerminalText(lastText).then(() => setStatus('已复制'), () => setStatus('复制未成功，请重试或使用系统复制菜单。'));
+      }
     };
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.parentElement?.contains(event.target)) clear();
       else if (event.pointerType === 'mouse' && event.button === 0 && event.target instanceof Node &&
         (host.contains(event.target) || log.contains(event.target))) {
         pointerSelecting = true;
-        setSelection(null);
+        clear();
       }
     };
     const pointerUp = () => { pointerSelecting = false; window.setTimeout(sync, 0); };
     const selected = terminal.onSelectionChange(sync);
     const scrolled = terminal.onScroll(sync);
-    const resized = terminal.onResize(() => { if (mode === 'dialog') sync(); else clear(); });
-    const parsed = terminal.onWriteParsed(() => {
-      // Do not offer stale coordinates after a TUI redraw replaces selected text.
-      if (mode === 'terminal' && lastText && terminal.getSelection() !== lastText) clear();
-    });
+    const resized = terminal.onResize(() => { if (mode === 'terminal' && snapshot) detached = true; sync(); });
+    const parsed = terminal.onWriteParsed(() => { if (snapshot) sync(); });
     const observer = new ResizeObserver(sync); observer.observe(root);
     document.addEventListener('selectionchange', sync);
-    document.addEventListener('keydown', escape, true);
+    document.addEventListener('keydown', keydown, true);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('pointerup', pointerUp, true);
     log.addEventListener('scroll', sync, {passive:true});
@@ -208,7 +241,7 @@ export function TerminalSelection({ terminal, hostRef, logRef, mode, visible, on
       setTouchSelection(false); setSelection(null);
       selected.dispose(); scrolled.dispose(); resized.dispose(); parsed.dispose(); observer.disconnect();
       document.removeEventListener('selectionchange', sync);
-      document.removeEventListener('keydown', escape, true);
+      document.removeEventListener('keydown', keydown, true);
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('pointerup', pointerUp, true);
       log.removeEventListener('scroll', sync);

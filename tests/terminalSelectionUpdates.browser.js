@@ -1,0 +1,100 @@
+// Run through playwright-cli on the local full server; only the fixture socket is mocked.
+async (page) => {
+  if (!['127.0.0.1', 'localhost'].includes(new URL(page.url()).hostname)) throw new Error('Local fixture only');
+  const check = (value, message) => { if (!value) throw new Error(message); };
+  const esc = String.fromCharCode(27), nl = String.fromCharCode(13, 10);
+  let socket, sessionId;
+  const writes = [];
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:false});
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({width:1280, height:820});
+  await page.route('**/api/load_state', r => r.fulfill({json:{projects:[], activeProjectId:null}}));
+  await page.route('**/api/events_ticket', r => r.fulfill({json:{ticket:null}}));
+  await page.routeWebSocket('**/api/events*', ws => { socket = ws; });
+  await page.route('**/api/terminal_*', async r => {
+    const command = r.request().url().split('/').pop(), body = r.request().postDataJSON();
+    if (command === 'terminal_start') sessionId = body.sessionId;
+    if (command === 'terminal_write') writes.push(body.data);
+    await r.fulfill(command === 'terminal_start' ? {json:{sessionId, shell:'Selection updates', cwd:'D:/selection'}} : {status:204});
+  });
+  await page.evaluate(() => localStorage.setItem('code-terminal-view-mode', 'terminal'));
+  await page.reload();
+  await page.locator('.xterm-rows').waitFor();
+  for (let i=0; i<50 && (!socket || !sessionId); i++) await page.waitForTimeout(100);
+  check(socket && sessionId, 'Fixture ready');
+  const output = async data => { socket.send(JSON.stringify({type:'terminalOutput', payload:{sessionId,data}})); await page.waitForTimeout(120); };
+  const copy = page.getByRole('button', {name:'复制到剪贴板', exact:true});
+  const paste = page.getByRole('button', {name:'粘贴到输入栏', exact:true});
+  const actions = page.getByRole('group', {name:'选中文字操作', exact:true});
+  const input = page.getByRole('textbox', {name:'输入内容', exact:true});
+  const point = col => page.locator('.xterm-rows').evaluate((el, col) => {
+    const row = el.children[0], rect = row.getBoundingClientRect(), text = row.querySelector('span');
+    const range = document.createRange(); range.selectNodeContents(text);
+    return {x:rect.left+col*range.getBoundingClientRect().width/text.textContent.length, y:rect.top+rect.height/2};
+  }, col);
+  async function drag() {
+    const a=await point(5.2), b=await point(14.2);
+    await page.mouse.move(a.x,a.y); await page.mouse.down();
+    await page.mouse.move(b.x,b.y,{steps:12}); await page.mouse.up();
+    await copy.waitFor();
+  }
+  const screen = esc+'[2J'+esc+'[H';
+  await output(esc+'[?1049h'+esc+'[?1000h'+esc+'[?1006h'+screen+'copy this exact part'+nl);
+  await drag();
+  for (let i=0; i<8; i++) await output(screen+'updated content '+i+nl);
+  check(await actions.isVisible(), 'Selection actions survive repeated pushed TUI redraws');
+  await copy.click();
+  check(await page.evaluate(() => navigator.clipboard.readText()) === 'this exact', 'Copy retains selected snapshot after redraw');
+  await page.screenshot({path:'output/playwright/selection-updates-desktop.png'});
+  await page.keyboard.press('Control+c');
+  check(writes.length === 0, 'Snapshot Ctrl+C does not interrupt TUI');
+  await paste.click();
+  check(await input.inputValue() === 'this exact' && writes.length === 0, 'Paste snapshot without sending');
+  check(!await actions.count(), 'Paste dismisses menu');
+  await output(screen+'copy this exact part'+nl);
+  await drag();
+  await page.setViewportSize({width:1100,height:740}); await page.waitForTimeout(250);
+  check(await actions.isVisible(), 'Resize preserves selection snapshot');
+  await copy.click();
+  check(await page.evaluate(() => navigator.clipboard.readText()) === 'this exact', 'Resize does not change copied text');
+  await page.keyboard.press('Escape'); check(!await actions.count(), 'Escape dismisses snapshot');
+  await output(screen+'copy this exact part'+nl); await drag();
+  await output(screen+'replacement text'+nl);
+  await input.click(); check(!await actions.count(), 'Click composer dismisses snapshot');
+  await output(esc+'[?1000l'+esc+'[?1006l'+esc+'[?1049l'+screen+'copy this exact part'+nl);
+  await drag(); await copy.click(); const normalText=await page.evaluate(() => navigator.clipboard.readText());
+  await output(Array.from({length:80},(_,i)=>'stream row '+i).join(nl)+nl);
+  check(await actions.isVisible(), 'Streaming scroll keeps menu'); await copy.click();
+  check(await page.evaluate(() => navigator.clipboard.readText()) === normalText, 'Streaming scroll preserves selected text');
+  await page.keyboard.press('Escape');
+  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:5});
+  for (const width of [390,360]) {
+    await page.setViewportSize({width,height:844}); await page.waitForTimeout(200);
+    await output(esc+'[?1049h'+screen+'copy this exact part'+nl);
+    const p=await point(6);
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[p]}); await page.waitForTimeout(550);
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]}); await copy.waitFor();
+    await output(screen+'pushed replacement'+nl);
+    check(await actions.isVisible(), 'Touch selection survives push '+width);
+    check(!await page.getByRole('button',{name:'调整选区终点'}).count(), 'Stale touch handles are removed');
+    await copy.click(); check(await page.evaluate(() => navigator.clipboard.readText()) === 'this', 'Touch snapshot copied');
+    check(await actions.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&el.scrollWidth<=el.clientWidth;}), 'Menu text and buttons inside viewport');
+    await page.screenshot({path:'output/playwright/selection-updates-'+width+'.png'});
+    await paste.click();
+  }
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.getByRole('button',{name:'对话',exact:true}).click();
+  if (await page.locator('.settings-popover').isVisible()) await page.getByRole('button',{name:'设置',exact:true}).click();
+  await input.fill('selected dialog marker'); await input.press('Enter'); await page.waitForTimeout(200); writes.length=0;
+  const bubble=page.locator('.terminal-dialog-bubble').filter({hasText:'selected dialog marker'}).last();
+  const nativeSelect=async end=>bubble.evaluate((el,end)=>{const r=document.createRange();r.setStart(el.firstChild,0);r.setEnd(el.firstChild,end);const s=window.getSelection();s.removeAllRanges();s.addRange(r);},end);
+  await nativeSelect(8); await copy.waitFor();
+  await output(nl+'streamed dialog tail'+nl);
+  await copy.click(); check(await page.evaluate(()=>navigator.clipboard.readText())==='selected','Dialog selection survives pushed output');
+  await nativeSelect(15); await copy.click();
+  check(await page.evaluate(()=>navigator.clipboard.readText())==='selected dialog','Native handle adjustment replaces snapshot');
+  await paste.click(); check(await input.inputValue()==='selected dialog'&&writes.length===0,'Dialog paste retains text without submission');
+  console.log('PASS: pushed redraw/scroll/resize preserves exact text, desktop/touch actions, explicit dismissal and no accidental submission.');
+  return {passed:true};
+}
