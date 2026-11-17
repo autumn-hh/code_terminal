@@ -1436,6 +1436,11 @@ export function TerminalPane({
                 commandRequest={routedCommand?.tabId === tab.id ? routedCommand.request : null}
                 onError={onError}
                 onRuntimeChange={updateRuntime}
+                onPasteSelection={text => {
+                  focusTerminal(tab.id, "none");
+                  setIsComposerExpanded(true);
+                  insertComposerText(text);
+                }}
               />
             </div>
           );

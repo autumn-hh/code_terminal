@@ -1,4 +1,6 @@
 import { TerminalQuickScroll, type ScrollPosition } from "./TerminalQuickScroll";
+import { copyTerminalText } from "./terminalClipboard";
+import { TerminalSelection } from "./TerminalSelection";
 import { TerminalProgramScroll, usesProgramScroll } from "./terminalProgramScroll";
 import { terminalPerformance } from "./terminalPerformance";
 import { FitAddon } from "@xterm/addon-fit";
@@ -232,6 +234,7 @@ interface TerminalSessionViewProps {
   commandRequest?: TerminalCommandRequest | null;
   onError: (message: string) => void;
   onRuntimeChange: (tabId: string, runtime: TerminalSessionRuntime) => void;
+  onPasteSelection: (text: string) => void;
 }
 
 export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSessionViewProps>(
@@ -246,11 +249,13 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       commandRequest,
       onError,
       onRuntimeChange,
+      onPasteSelection,
     },
     ref,
   ) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const terminalRef = useRef<XTerm | null>(null);
+    const [selectionTerminal, setSelectionTerminal] = useState<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const sessionIdRef = useRef<string | null>(null);
     const initialAttachSessionRef = useRef(attachSessionId);
@@ -1928,6 +1933,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }
 
     function handleTerminalTouchMove(event: TouchEvent) {
+      if (hostRef.current?.dataset.selecting) return;
       if (viewModeRef.current !== "terminal") return;
 
       const scroll = terminalTouchScrollRef.current;
@@ -3006,6 +3012,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       terminal.loadAddon(fit);
       terminal.open(host);
       terminalRef.current = terminal;
+      setSelectionTerminal(terminal);
       programScrollRef.current = null;
       const recordScrollIntent = (event: WheelEvent) => {
         if (event.deltaY && !event.ctrlKey && !event.shiftKey) {
@@ -3109,6 +3116,13 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       document.addEventListener("focusin", focusInListener);
       document.addEventListener("focusout", focusOutListener);
       terminal.attachCustomKeyEventHandler((event) => {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "c" && terminal.hasSelection()) {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            void copyTerminalText(terminal.getSelection()).catch(() => onError("复制未成功，请重试选区旁的「复制」或使用系统复制菜单。"));
+          }
+          return false;
+        }
         if (isPasteShortcut(event)) return false;
         return true;
       });
@@ -3208,6 +3222,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         void stopSession();
         terminal.dispose();
         terminalRef.current = null;
+        setSelectionTerminal(null);
         fitRef.current = null;
       };
     }, [activeProjectId]);
@@ -3334,6 +3349,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
               ↓ 回到最新
             </button>
           )}
+          <TerminalSelection terminal={selectionTerminal} hostRef={hostRef} logRef={conversationLogRef}
+            mode={viewMode} visible={isVisible} onPaste={onPasteSelection} />
         </div>
       </div>
     );
