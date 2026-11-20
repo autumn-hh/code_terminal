@@ -3,6 +3,11 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  esbuild: {
+    // Syntax minification miscompiles xterm 6's mode-query enum initialization,
+    // throwing on Codex startup queries. Keep identifier/whitespace minification.
+    minifySyntax: false,
+  },
   clearScreen: false,
   build: {
     rollupOptions: {

@@ -5,6 +5,7 @@ use axum::{
         Query, State, Request,
     },
     http::{HeaderMap, HeaderValue, StatusCode},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -392,6 +393,7 @@ pub async fn run() -> Result<(), String> {
         .route("/api/events", get(events_ws))
         .route("/api/events_ticket", post(events_ticket))
         .fallback_service(static_service)
+        .layer(middleware::map_response(revalidate_html))
         .with_state(app_state.clone());
 
     let listener = tokio::net::TcpListener::bind(config.addr)
@@ -413,6 +415,20 @@ pub async fn run() -> Result<(), String> {
         .with_graceful_shutdown(shutdown_signal(app_state))
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn revalidate_html(mut response: Response) -> Response {
+    // The entry document points to hashed JS/CSS. Revalidate it on navigation
+    // so a deployment cannot leave clients using an old entry from HTTP cache.
+    if response.headers().get(axum::http::header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"))
+    {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache, must-revalidate"),
+        );
+    }
+    response
 }
 
 fn read_server_config() -> Result<ServerConfig, String> {
