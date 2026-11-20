@@ -13,7 +13,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { formatPastedImagePath, getClipboardImageItem, saveClipboardImage } from "./clipboardImages";
-import { createClientId } from "./ids";
+import { createClientId, isUuid } from "./ids";
 import { invoke, isTauriRuntime, listen, releaseServerSession } from "./tauriRuntime";
 import { getXtermTheme } from "./terminalThemes";
 import type {
@@ -2862,13 +2862,16 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
     async function resumeCodexSession(sessionId: string) {
       const normalizedSessionId = sessionId.trim();
-      if (!normalizedSessionId) return;
+      if (!isUuid(normalizedSessionId)) {
+        onError("历史会话编号无效");
+        return;
+      }
 
       setWindowTitle(null);
       await stopSession();
       setConversationMessages([]);
       pendingRawInputRef.current = formatCommandInput(`codex resume ${normalizedSessionId}`);
-      await startSession();
+      await startSession({ restartIfStarting: true });
     }
 
     useImperativeHandle(ref, () => ({

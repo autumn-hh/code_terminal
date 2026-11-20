@@ -365,7 +365,7 @@ async fn list_codex_sessions(
             .ok_or_else(|| "项目不存在".to_string())?
     };
 
-    tauri::async_runtime::spawn_blocking(move || codex_sessions::list_codex_sessions(&path, 12))
+    tauri::async_runtime::spawn_blocking(move || codex_sessions::list_codex_sessions(&path, 12, None))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -406,6 +406,11 @@ fn terminal_start(
         command.arg(arg);
     }
     configure_terminal_environment(&mut command);
+    if let Some(id) = &project_id {
+        command.env("CODE_TERMINAL_PROJECT_ID", id);
+    } else {
+        command.env_remove("CODE_TERMINAL_PROJECT_ID");
+    }
     command.cwd(cwd.clone());
 
     let child = pair

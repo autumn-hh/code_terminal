@@ -187,16 +187,18 @@ pub(crate) struct CodexSessionSummary {
 pub(crate) fn list_codex_sessions(
     cwd: &str,
     limit: usize,
+    session_id: Option<Uuid>,
 ) -> Result<Vec<CodexSessionSummary>, String> {
     let _permit = HistoryQueryPermit::acquire()?;
     let mut command = codex_app_server_command();
-    query_codex_sessions(&mut command, cwd, limit, CODEX_APP_SERVER_TIMEOUT)
+    query_codex_sessions(&mut command, cwd, limit, session_id, CODEX_APP_SERVER_TIMEOUT)
 }
 
 fn query_codex_sessions(
     command: &mut Command,
     cwd: &str,
     limit: usize,
+    session_id: Option<Uuid>,
     timeout: Duration,
 ) -> Result<Vec<CodexSessionSummary>, String> {
     configure_history_process(command);
@@ -236,15 +238,22 @@ fn query_codex_sessions(
                 }
             }),
             json!({ "method": "initialized", "params": {} }),
-            json!({
-                "method": "thread/list",
-                "id": 1,
-                "params": {
-                    "archived": false,
-                    "cwd": cwd,
-                    "limit": limit.clamp(1, 50)
-                }
-            }),
+            match session_id {
+                Some(id) => json!({
+                    "method": "thread/read",
+                    "id": 1,
+                    "params": {"threadId": id.to_string(), "includeTurns": false}
+                }),
+                None => json!({
+                    "method": "thread/list",
+                    "id": 1,
+                    "params": {
+                        "archived": false,
+                        "cwd": cwd,
+                        "limit": limit.clamp(1, 50)
+                    }
+                }),
+            },
         ];
 
         let request = requests
@@ -297,7 +306,18 @@ fn query_codex_sessions(
                         .get("message")
                         .and_then(Value::as_str)
                         .unwrap_or("Codex 会话服务返回错误");
+                    if session_id.is_some() {
+                        return Err("无法读取该历史会话，记录可能已移除或当前账号无权访问".into());
+                    }
                     return Err(message.to_string());
+                }
+
+                if let Some(id) = session_id {
+                    let session = message.pointer("/result/thread")
+                        .and_then(session_summary_from_value)
+                        .filter(|session| session.id == id.to_string())
+                        .filter(|session| same_workspace(cwd, &session.cwd));
+                    return Ok(session.into_iter().collect());
                 }
 
                 let sessions = message
@@ -319,6 +339,13 @@ fn query_codex_sessions(
     drop(stdout);
     drop(child);
     result
+}
+
+fn same_workspace(requested: &str, actual: &str) -> bool {
+    let (Ok(requested), Ok(actual)) = (std::fs::canonicalize(requested), std::fs::canonicalize(actual)) else {
+        return false;
+    };
+    requested == actual
 }
 
 fn session_summary_from_value(value: &Value) -> Option<CodexSessionSummary> {
@@ -527,7 +554,7 @@ mod tests {
             let mut command = fixture_command(mode, &marker);
             let started = Instant::now();
             let result =
-                query_codex_sessions(&mut command, "/test", 12, Duration::from_millis(800));
+                query_codex_sessions(&mut command, "/test", 12, None, Duration::from_millis(800));
             assert!(
                 started.elapsed() < Duration::from_secs(4),
                 "unbounded cleanup: {mode}"

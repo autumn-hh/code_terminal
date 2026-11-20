@@ -194,6 +194,13 @@ struct ProjectIdRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SessionHistoryRequest {
+    project_id: String,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ReorderProjectsRequest {
     project_ids: Vec<String>,
 }
@@ -799,9 +806,11 @@ async fn list_codex_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<TokenQuery>,
-    Json(request): Json<ProjectIdRequest>,
+    Json(request): Json<SessionHistoryRequest>,
 ) -> Result<Json<Vec<codex_sessions::CodexSessionSummary>>, ApiError> {
     authorize(&state.config, &headers, query.token.as_deref())?;
+    let session_id = request.session_id.as_deref().map(Uuid::parse_str).transpose()
+        .map_err(|_| ApiError::bad_request("会话编号无效"))?;
     let path = {
         let current = state.state_store.lock().map_err(lock_error)?;
         current
@@ -817,7 +826,7 @@ async fn list_codex_sessions(
         .map_err(|_| ApiError::busy("历史会话查询繁忙，请稍后重试"))?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        codex_sessions::list_codex_sessions(&path, 12)
+        codex_sessions::list_codex_sessions(&path, 12, session_id)
     })
         .await
         .map_err(|error| ApiError::internal(error.to_string()))?
@@ -1157,6 +1166,11 @@ fn start_terminal_session(
         command.arg(arg);
     }
     configure_terminal_environment(&mut command);
+    if let Some(id) = &project_id {
+        command.env("CODE_TERMINAL_PROJECT_ID", id);
+    } else {
+        command.env_remove("CODE_TERMINAL_PROJECT_ID");
+    }
     command.cwd(cwd.clone());
 
     let mut reader = pair

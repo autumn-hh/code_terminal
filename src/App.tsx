@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CodexSessionCache, codexSessionProjectKey } from "./codexSessionCache";
+import { CopySessionLink, readSessionLink, SessionLinkPreview } from "./SessionLink";
 import {
   canUseNativeOpenDialog,
   closeWindow,
@@ -199,7 +200,9 @@ function directoryErrorMessage(error: unknown, action: string) {
 }
 
 export function App() {
-  const [windowProjectId, setWindowProjectId] = useState<string | null>(() => getWindowProjectId());
+  const [sessionLink, setSessionLink] = useState(() => isTauriRuntime() ? null : readSessionLink());
+  const [windowProjectId, setWindowProjectId] = useState<string | null>(() =>
+    sessionLink && sessionLink !== "invalid" ? sessionLink.projectId : getWindowProjectId());
   const [state, setState] = useState<WorkbenchState>(emptyState);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -560,11 +563,11 @@ export function App() {
   }, [currentProject?.name]);
 
   useEffect(() => {
-    if (!currentProject?.id) return;
+    if (sessionLink || !currentProject?.id) return;
 
     setExpandedSessionProjectId(currentProject.id);
     void loadCodexSessions(currentProject);
-  }, [currentProject?.id, currentProject?.path]);
+  }, [currentProject?.id, currentProject?.path, sessionLink]);
 
   useEffect(() => {
     if (!draggedProjectId) return;
@@ -1145,6 +1148,15 @@ export function App() {
     );
   }
 
+  if (sessionLink) {
+    return <SessionLinkPreview reference={sessionLink} loading={!isStateLoaded} error={error}
+      project={state.projects.find(project => sessionLink !== "invalid" && project.id === sessionLink.projectId)}
+      onOpen={(projectId, session) => {
+        void resumeCodexSession(projectId, session.id, session.title);
+        setSessionLink(null);
+      }} />;
+  }
+
   return (
     <main
       className={`shell ${isSidebarCollapsed ? "sidebar-collapsed" : ""} ${
@@ -1533,11 +1545,11 @@ export function App() {
                           <div className="project-session-status">暂无历史会话</div>
                         )}
                         {sessions.map((session) => (
+                          <div key={session.id} className="project-session-row">
                             <button
                               className={`project-session-item ${
                                 selectedCodexSessionId === session.id ? "active" : ""
                               }`}
-                              key={session.id}
                               type="button"
                               title={`${session.title}\n${session.cwd}`}
                               onClick={() => void resumeCodexSession(project.id, session.id, session.title)}
@@ -1546,7 +1558,10 @@ export function App() {
                               <span>{session.title}</span>
                               <small>{formatRelativeTime(session.updatedAt)}前</small>
                             </button>
-                          ))}
+                            {!isTauriRuntime() && <CopySessionLink projectId={project.id}
+                              sessionId={session.id} title={session.title} />}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

@@ -1,0 +1,59 @@
+.project-session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+}
+.session-link-copy {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  color: var(--app-muted);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.session-link-copy:hover { color: var(--app-text); background: var(--app-sidebar-strong); }
+.session-link-feedback {
+  grid-column: 1 / -1;
+  padding: 3px 8px;
+  color: var(--app-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.session-link-page {
+  width: 100vw;
+  height: 100%;
+  overflow: auto;
+  display: grid;
+  align-items: safe center;
+  justify-items: center;
+  padding: 16px;
+  color: #f1eee8;
+  background: #1c1c1a;
+}
+.session-link-panel {
+  width: min(100%, 32rem);
+  min-width: 0;
+  padding: clamp(16px, 5vw, 30px);
+  background: #292825;
+  border: 1px solid #494740;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.session-link-panel h1 { margin: 12px 0; font-size: 1.35rem; }
+.session-link-panel p { margin: 8px 0; }
+.session-link-panel small { display: block; color: #c1beb7; }
+.session-link-panel button {
+  margin-top: 16px;
+  padding: 0 16px;
+  min-height: 44px;
+  border-radius: 6px;
+  background: #e1e5e9;
+  color: #1b2329;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .session-link-copy { min-width: 44px; min-height: 44px; }
+}
