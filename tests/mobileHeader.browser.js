@@ -14,17 +14,18 @@ async page => {
   await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null}}));
   await page.route('**/api/list_codex_sessions',r=>r.fulfill({json:[]}));
   let socket;
-  const sessions = new Set(), stopped = [];
+  const sessions = new Set(), stopped = [], writes = [];
   await page.routeWebSocket('**/api/events*',ws=>{socket=ws;});
   await page.route('**/api/terminal_*',async r=>{
     const cmd=r.request().url().split('/').pop(), data=r.request().postDataJSON();
     if(cmd==='terminal_start')sessions.add(data.sessionId);
     if(cmd==='terminal_stop')stopped.push(data.sessionId);
+    if(cmd==='terminal_write')writes.push(data.data);
     await r.fulfill(cmd==='terminal_start'?{json:{sessionId:data.sessionId,cwd:project.path,shell:'fixture'}}:{status:204});
     if(cmd==='terminal_resize' && socket) socket.send(JSON.stringify({type:'terminalOutput',payload:{sessionId:data.sessionId,data:'\x1b[2J\x1b[HHeader layout fixture\r\nCodex TUI output\r\n中文终端内容'}}));
   });
   await page.evaluate(()=>{
-    localStorage.setItem('code-terminal-view-mode','terminal');
+    localStorage.setItem('code-terminal-view-mode','dialog');
     localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');
     localStorage.setItem('opencode-workbench.terminal-layout',JSON.stringify({displayMode:'tabs'}));
   });
@@ -32,10 +33,8 @@ async page => {
   const input=page.getByLabel('输入内容',{exact:true});await input.waitFor();
   const settings=page.getByRole('dialog',{name:'工作区设置',exact:true});
   const openSettings=()=>page.getByRole('button',{name:'设置',exact:true}).click();
-  const switchView=async name=>{
-    await openSettings();await settings.getByRole('button',{name,exact:true}).click();
-    await page.locator('.terminal-session.active.mode-'+(name==='对话'?'dialog':'terminal')).waitFor();
-  };
+  await page.locator('.terminal-session.active.mode-terminal').waitFor();
+  check(await page.locator('.terminal-session.mode-dialog,.terminal-view-switch').count()===0,'Legacy dialog preference still opens terminal without a view switch');
   const results=[];
   for(const [width,height] of [[390,844],[360,740],[320,568],[884,1104],[1180,820]]){
     await page.setViewportSize({width,height});await page.waitForTimeout(400);
@@ -58,25 +57,21 @@ async page => {
     await page.locator('.mobile-project-backdrop').click();
     await openSettings();
     check(await settings.isVisible(),'Settings entry available');
+    check(await settings.getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
     await settings.getByRole('button',{name:'关闭设置',exact:true}).click();
     await page.screenshot({path:'output/playwright/header-'+width+'.png'});
     results.push({width,height,...geometry});
   }
   await page.setViewportSize({width:390,height:844});
-  await input.fill('保留对话记录');await input.press('Enter');
-  await switchView('对话');
-  check(await page.locator('.terminal-session.mode-dialog').count()===1,'Settings selects dialog');
-  check((await page.getByLabel('对话记录',{exact:true}).innerText()).includes('保留对话记录'),'Transcript preserved');
-  await openSettings();check(await settings.getByRole('button',{name:'对话',exact:true}).getAttribute('aria-pressed')==='true','Settings reflects active view');
-  await settings.getByRole('button',{name:'终端',exact:true}).click();
-  await page.locator('.terminal-session.active.mode-terminal').waitFor();
+  await input.fill('保留终端输入');await input.press('Enter');await page.waitForTimeout(100);
+  check(writes.some(text=>text.includes('保留终端输入')),'Composer still sends input to the terminal');
   const startedBefore=sessions.size;
   for(let i=0;i<4;i++)await page.getByRole('button',{name:'新建终端',exact:true}).click();
   await page.waitForTimeout(500);
   check(await page.getByRole('tab').count()===5,'Create sessions');
   check(await page.locator('.terminal-cell.visible').count()===1,'Tabs keep one output');
   await page.getByRole('tab').first().click();
-  await switchView('对话');check((await page.getByLabel('对话记录',{exact:true}).first().innerText()).includes('保留对话记录'),'Switch session preserves text');
+  check((await page.locator('.terminal-cell.active .xterm-rows').innerText()).includes('Codex TUI output'),'Switching sessions preserves terminal output');
   await page.locator('.terminal-tab').last().getByRole('button',{name:'关闭终端',exact:true}).click();
   check(await page.getByRole('tab').count()===4&&stopped.length>0,'Close reachable through horizontal tabs');
   await page.setViewportSize({width:884,height:1104});
@@ -91,12 +86,12 @@ async page => {
   check(!await page.locator('.terminal-bar').isVisible(),'Hide row');
   await page.getByRole('button',{name:'显示顶部功能',exact:true}).click();
   check(await page.locator('.terminal-bar').isVisible(),'Restore row');
-  await switchView('终端');
+  check(await page.locator('.terminal-session.active.mode-terminal').isVisible(),'Terminal remains visible after restoring chrome');
   await page.screenshot({path:'output/playwright/header-foldable-22px.png'});
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.setViewportSize({width:1280,height:900});await page.waitForTimeout(400);
   check(await page.locator('.workspace-bar').isVisible(),'Desktop header preserved');
-  check(await page.locator('.terminal-cell.visible .terminal-view-switch').isVisible(),'Desktop switch preserved');
+  check(await page.locator('.terminal-view-switch').count()===0,'Desktop has no retired view switch');
   await page.screenshot({path:'output/playwright/header-desktop.png'});
   return {passed:true,results,created:sessions.size-startedBefore};
 }

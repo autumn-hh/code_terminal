@@ -18,9 +18,10 @@ async (page) => {
     if (command === 'terminal_write') writes.push(body.data);
     await r.fulfill(command === 'terminal_start' ? {json:{sessionId, shell:'Selection updates', cwd:'D:/selection'}} : {status:204});
   });
-  await page.evaluate(() => localStorage.setItem('code-terminal-view-mode', 'terminal'));
+  await page.evaluate(() => localStorage.setItem('code-terminal-view-mode', 'dialog'));
   await page.reload();
   await page.locator('.xterm-rows').waitFor();
+  check(await page.locator('.terminal-session.mode-dialog,.terminal-view-switch').count() === 0, 'Legacy dialog preference still opens terminal selection');
   for (let i=0; i<50 && (!socket || !sessionId); i++) await page.waitForTimeout(100);
   check(socket && sessionId, 'Fixture ready');
   const output = async data => { socket.send(JSON.stringify({type:'terminalOutput', payload:{sessionId,data}})); await page.waitForTimeout(120); };
@@ -84,17 +85,9 @@ async (page) => {
     await paste.click();
   }
   await page.getByRole('button',{name:'设置',exact:true}).click();
-  await page.getByRole('button',{name:'对话',exact:true}).click();
-  if (await page.locator('.settings-popover').isVisible()) await page.getByRole('button',{name:'设置',exact:true}).click();
-  await input.fill('selected dialog marker'); await input.press('Enter'); await page.waitForTimeout(200); writes.length=0;
-  const bubble=page.locator('.terminal-dialog-bubble').filter({hasText:'selected dialog marker'}).last();
-  const nativeSelect=async end=>bubble.evaluate((el,end)=>{const r=document.createRange();r.setStart(el.firstChild,0);r.setEnd(el.firstChild,end);const s=window.getSelection();s.removeAllRanges();s.addRange(r);},end);
-  await nativeSelect(8); await copy.waitFor();
-  await output(nl+'streamed dialog tail'+nl);
-  await copy.click(); check(await page.evaluate(()=>navigator.clipboard.readText())==='selected','Dialog selection survives pushed output');
-  await nativeSelect(15); await copy.click();
-  check(await page.evaluate(()=>navigator.clipboard.readText())==='selected dialog','Native handle adjustment replaces snapshot');
-  await paste.click(); check(await input.inputValue()==='selected dialog'&&writes.length===0,'Dialog paste retains text without submission');
+  const settings=page.getByRole('dialog',{name:'工作区设置',exact:true});
+  check(await settings.getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
+  await settings.getByRole('button',{name:'关闭设置',exact:true}).click();
   console.log('PASS: pushed redraw/scroll/resize preserves exact text, desktop/touch actions, explicit dismissal and no accidental submission.');
   return {passed:true};
 }

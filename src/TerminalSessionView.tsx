@@ -41,7 +41,6 @@ const maxLiveTuiTranscriptChars = 32000;
 const bracketedPasteSubmitDelayMs = 180;
 const terminalTuiImeStabilizeHoldMs = 900;
 const codexStatusWords = ["Working", "Thinking", "Reading", "Editing", "Running", "Inspecting"];
-const terminalViewModeStorageKey = "code-terminal-view-mode";
 const tuiRenderDebugStorageKey = "code-terminal.tui-render-debug";
 const lightTuiBackgroundAnsi = ["48", "2", "230", "237", "243"];
 const ansi256ColorLevels = [0, 95, 135, 175, 215, 255];
@@ -208,14 +207,12 @@ function mapLightThemeTuiBackgrounds(data: string, appearance: TerminalAppearanc
 export interface TerminalSessionRuntime {
   session: TerminalStarted | null;
   isStarting: boolean;
-  viewMode: TerminalViewMode;
   backgroundBusy: boolean;
   windowTitle: string | null;
 }
 
 export interface TerminalSessionHandle {
   setBackground: (keepAlive: boolean) => Promise<void>;
-  showView: (mode: TerminalViewMode) => void;
   restartSession: () => Promise<void>;
   resumeCodexSession: (sessionId: string) => Promise<void>;
   stopSession: () => Promise<void>;
@@ -334,16 +331,9 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const conversationMessagesRef = useRef<ConversationMessage[]>([]);
     const [conversationMessages, publishConversationMessages] = useState<ConversationMessage[]>([]);
     const [tuiContextUsage, setTuiContextUsage] = useState<TuiContextUsage | null>(null);
-    const [viewMode, setViewMode] = useState<TerminalViewMode>(() => {
-      try {
-        const savedViewMode = localStorage.getItem(terminalViewModeStorageKey);
-        return savedViewMode === "dialog" || savedViewMode === "terminal" ? savedViewMode : "terminal";
-      } catch {
-        return "terminal";
-      }
-    });
+    // Terminal is the only view; ignore legacy saved dialog preferences.
+    const viewMode = viewModeRef.current;
     activeProjectIdRef.current = activeProjectId;
-    viewModeRef.current = viewMode;
 
     // Keep recording the transcript while xterm is visible, but do not rebuild
     // the hidden dialog DOM (or run its scroll/layout effect) at stream end.
@@ -1863,52 +1853,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       terminalRef.current?.textarea?.blur();
     }
 
-    function showDialogView() {
-      resetTerminalTouchScroll();
-      setViewMode("dialog");
-      viewModeRef.current = "dialog";
-      publishConversationMessages(conversationMessagesRef.current);
-      rememberTerminalViewMode("dialog");
-      syncTerminalTuiImeStableClass();
-      blurTerminalInput();
-      writeTuiDebugLog("view-mode-dialog");
-      window.setTimeout(() => {
-        blurTerminalInput();
-        logFocusDebug("view-mode-dialog-after-blur");
-        scheduleFitAndResize({ force: true, settle: true });
-        if (hasLiveTuiSnapshotContext()) {
-          captureLiveTuiSnapshot();
-        }
-      }, 0);
-    }
-
-    function showTerminalView() {
-      resetTerminalTouchScroll();
-      const buffer = terminalRef.current?.buffer.active;
-      setShowLatest(Boolean(buffer && buffer.viewportY < buffer.baseY));
-      setViewMode("terminal");
-      viewModeRef.current = "terminal";
-      // Remove hidden transcript nodes; the authoritative transcript remains
-      // in the ref and is restored on switching back to dialog.
-      publishConversationMessages([]);
-      rememberTerminalViewMode("terminal");
-      syncTerminalTuiImeStableClass();
-      writeTuiDebugLog("view-mode-terminal");
-      window.setTimeout(() => {
-        scheduleFitAndResize({ force: true, settle: true });
-        if (!window.matchMedia("(pointer: coarse)").matches) terminalRef.current?.focus();
-        logFocusDebug("view-mode-terminal-after-focus");
-      }, 0);
-    }
-
-    function rememberTerminalViewMode(nextViewMode: TerminalViewMode) {
-      try {
-        localStorage.setItem(terminalViewModeStorageKey, nextViewMode);
-      } catch {
-        // Ignore storage failures; the active view still changes for this session.
-      }
-    }
-
     function getTerminalLinePixelHeight() {
       return Math.max(8, appearance.fontSize * appearance.lineHeight);
     }
@@ -2888,10 +2832,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           setBackgroundBusy(false);
         }
       },
-      showView(mode) {
-        if (mode === "dialog") showDialogView();
-        else showTerminalView();
-      },
       restartSession,
       resumeCodexSession,
       stopSession,
@@ -2978,8 +2918,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }, [appearance.fontSize, appearance.lineHeight]);
 
     useEffect(() => {
-      onRuntimeChange(tabId, { session, isStarting, viewMode, backgroundBusy, windowTitle });
-    }, [isStarting, onRuntimeChange, session, tabId, viewMode, backgroundBusy, windowTitle]);
+      onRuntimeChange(tabId, { session, isStarting, backgroundBusy, windowTitle });
+    }, [isStarting, onRuntimeChange, session, tabId, backgroundBusy, windowTitle]);
 
     useEffect(() => {
       isActiveRef.current = isActive;
@@ -3289,38 +3229,6 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
           tuiContextUsage ? "has-context" : ""
         } mode-${viewMode}`}
       >
-        <div className="terminal-session-toolbar">
-          <div className="terminal-view-switch" role="group" aria-label="显示模式">
-            <button
-              className={viewMode === "dialog" ? "active" : ""}
-              aria-pressed={viewMode === "dialog"}
-              type="button"
-              onClick={showDialogView}
-            >
-              对话
-            </button>
-            <button
-              className={viewMode === "terminal" ? "active" : ""}
-              aria-pressed={viewMode === "terminal"}
-              type="button"
-              onClick={showTerminalView}
-            >
-              终端
-            </button>
-          </div>
-          {tuiContextUsage ? (
-            <div
-              className="terminal-dialog-context"
-              aria-label={getTuiContextTitle(tuiContextUsage)}
-              title={getTuiContextTitle(tuiContextUsage)}
-            >
-              <span className="terminal-dialog-context-label">{getTuiContextLabel(tuiContextUsage)}</span>
-              <span className="terminal-dialog-context-meter" aria-hidden="true">
-                <span style={{ width: `${getTuiContextUsedPercent(tuiContextUsage)}%` }} />
-              </span>
-            </div>
-          ) : null}
-        </div>
         <div className="terminal-session-content">
           <div className="terminal-dialog-split" aria-hidden={viewMode !== "dialog"}>
             <div

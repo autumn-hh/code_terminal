@@ -29,8 +29,9 @@ async (page) => {
     }
     await r.fulfill(cmd==='terminal_start'?{json:{sessionId,shell:'fixture',cwd:'D:/scroll-sync'}}:{status:204});
   });
-  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','terminal');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
+  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','dialog');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
   await page.reload(); await page.locator('.xterm-rows').waitFor();
+  check(await page.locator('.terminal-view-switch,.terminal-session.mode-dialog').count()===0,'Legacy dialog preference opens the fixed terminal');
   for(let i=0;i<30&&(!socket||!sessionId);i++)await page.waitForTimeout(100);
   rows=await page.locator('.xterm-rows').evaluate(el=>el.children.length);
   emit('\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[2J');render();await page.waitForTimeout(350);
@@ -68,9 +69,12 @@ async (page) => {
   await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.mouse.up();
   await page.waitForTimeout(650);const blurred=requests;await page.waitForTimeout(300);
   check(requests===blurred,'Window blur must cancel the edge repeat');
-  const beforeSwitch=await fraction();
-  await page.getByRole('button',{name:'对话',exact:true}).click();await page.getByRole('button',{name:'终端',exact:true}).click();await page.waitForTimeout(300);
-  check(Math.abs(await fraction()-beforeSwitch)<0.001,'View switch must preserve confirmed TUI position');
+  const beforeSettings=await fraction();
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  const settings=page.getByRole('dialog',{name:'工作区设置',exact:true});
+  check(await settings.getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
+  await settings.getByRole('button',{name:'关闭设置',exact:true}).click();await page.waitForTimeout(300);
+  check(Math.abs(await fraction()-beforeSettings)<0.001,'Opening settings must preserve confirmed TUI position');
   await page.screenshot({path:'output/playwright/scroll-sync-delayed-desktop.png'});
   frozen=true;
   for(const [width,height] of [[390,844],[360,740],[884,1104],[1180,820],[884,420]]){
@@ -81,5 +85,5 @@ async (page) => {
     check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No page overflow');
     await page.screenshot({path:'output/playwright/scroll-sync-'+width+'x'+height+'.png'});
   }
-  return {delayedRender:true,ignoredWheel:true,actualReverse:true,drag:true,edgeHoldRelease:true,blurCancellation:true,viewSwitch:true,peakRequests:peak,requests,responsive:5};
+  return {delayedRender:true,ignoredWheel:true,actualReverse:true,drag:true,edgeHoldRelease:true,blurCancellation:true,settingsPreservePosition:true,peakRequests:peak,requests,responsive:5};
 }

@@ -3,10 +3,6 @@
 async page => {
   if (!['127.0.0.1', 'localhost'].includes(new URL(page.url()).hostname)) throw Error('Local fixture only');
   const check = (ok, message) => { if (!ok) throw Error(message); };
-  const switchView = async name => {
-    await page.getByRole('button', {name: '设置', exact: true}).click();
-    await page.getByRole('dialog', {name: '工作区设置', exact: true}).getByRole('button', {name, exact: true}).click();
-  };
   const results = [], writes = [];
   let socket, sessionId, rows = 24, uploads = 0;
   const cdp = await page.context().newCDPSession(page);
@@ -30,12 +26,14 @@ async page => {
   await page.route('**/api/upload_attachment?*', r => r.fulfill({json:
     '/opt/code-terminal-state/uploads/' + (++uploads) + '-01234567-89ab-cdef-0123-456789abcdef/' + new URL(r.request().url()).searchParams.get('name')}));
   await page.evaluate(() => {
-    localStorage.setItem('code-terminal-view-mode', 'terminal');
+    localStorage.setItem('code-terminal-view-mode', 'dialog');
     localStorage.setItem('opencode-workbench.mobile-chrome-hidden', 'false');
   });
   await page.reload();
   const input = page.getByLabel('输入内容', {exact: true});
   await input.waitFor();
+  await page.locator('.terminal-session.active.mode-terminal').waitFor();
+  check(await page.locator('.terminal-view-switch,.terminal-session.mode-dialog').count() === 0, 'Legacy dialog preference opens the fixed terminal');
   for (let i = 0; i < 40 && (!socket || !sessionId); i++) await page.waitForTimeout(100);
   check(socket && sessionId, 'Fixture must start');
   render();
@@ -94,6 +92,7 @@ async page => {
   await naturalViewport();
   check(!await compact(), 'Closing keyboard must restore chrome');
   await page.getByRole('button', {name: '设置', exact: true}).click();
+  check(await page.getByRole('dialog', {name: '工作区设置', exact: true}).getByRole('button', {name: /^(对话|终端)$/}).count() === 0, 'Settings has no retired view buttons');
   await page.route('**/api/set_terminal_appearance', r => r.fulfill({json: {projects: [], activeProjectId: null, terminalAppearance: r.request().postDataJSON().appearance}}));
   await page.getByRole('spinbutton', {name: '字号', exact: true}).fill('22');
   await page.getByRole('spinbutton', {name: '字号', exact: true}).press('Tab');
@@ -101,15 +100,6 @@ async page => {
   await input.focus(); await viewport(420); await measure('large-text-420', 235);
   await naturalViewport();
   check(await page.locator('.terminal-bar').isVisible(), 'Navigation restores');
-  await switchView('对话');
-  const attachmentDraft = await input.inputValue();
-  await input.fill('请检查移动端键盘打开后的可读内容');
-  await input.press('Enter');
-  await input.fill(attachmentDraft);
-  await input.focus(); await viewport(420); await measure('dialog-420', 235);
-  check((await page.getByLabel('对话记录', {exact: true}).innerText()).includes('请检查移动端'), 'Dialog text must remain visible');
-  await naturalViewport();
-  await switchView('终端');
   await input.focus();
   await page.setViewportSize({width: 390, height: 420}); await measure('layout-420', 235);
   check(await compact(), 'Layout resize must compact too');

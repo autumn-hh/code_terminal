@@ -52,7 +52,7 @@ export interface CodexSessionResumeRequest {
 }
 
 export type TerminalDisplayMode = "tabs" | "tiles";
-export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "show-dialog" | "show-terminal" | "interrupt" | "restart" | "stop" | "toggle-background";
+export type TerminalPaneControlAction = "show-tabs" | "show-tiles" | "interrupt" | "restart" | "stop" | "toggle-background";
 
 export interface TerminalPaneControlRequest {
   id: number;
@@ -64,7 +64,6 @@ export interface TerminalPaneControlState {
   backgroundSupported: boolean;
   backgroundBusy: boolean;
   keepAlive: boolean;
-  viewMode: "dialog" | "terminal";
   displayMode: TerminalDisplayMode;
   canInterrupt: boolean;
   canRestart: boolean;
@@ -1109,13 +1108,12 @@ export function TerminalPane({
       backgroundSupported: typeof activeRuntime?.session?.keepAlive === "boolean",
       backgroundBusy: activeRuntime?.backgroundBusy ?? false,
       keepAlive: activeRuntime?.session?.keepAlive ?? false,
-      viewMode: activeRuntime?.viewMode ?? "terminal",
       displayMode: layoutPreferences.displayMode,
       canInterrupt: Boolean(activeRuntime?.session),
       canRestart: !activeRuntime?.isStarting,
       canStop: Boolean(activeRuntime?.session),
     });
-  }, [activeRuntime?.isStarting, activeRuntime?.session, activeRuntime?.viewMode, activeRuntime?.backgroundBusy, layoutPreferences.displayMode, onControlStateChange]);
+  }, [activeRuntime?.isStarting, activeRuntime?.session, activeRuntime?.backgroundBusy, layoutPreferences.displayMode, onControlStateChange]);
 
   useEffect(() => {
     if (!controlRequest || lastControlRequestIdRef.current === controlRequest.id) return;
@@ -1124,12 +1122,6 @@ export function TerminalPane({
     switch (controlRequest.action) {
       case "toggle-background":
         void terminalHandlesRef.current[terminalTabs.activeTabId]?.setBackground(!activeRuntime?.session?.keepAlive);
-        break;
-      case "show-dialog":
-      case "show-terminal":
-        terminalHandlesRef.current[terminalTabs.activeTabId]?.showView(
-          controlRequest.action === "show-dialog" ? "dialog" : "terminal",
-        );
         break;
       case "show-tabs":
         setLayoutPreferences({ ...layoutPreferences, displayMode: "tabs" });

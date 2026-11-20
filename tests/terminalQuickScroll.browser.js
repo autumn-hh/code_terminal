@@ -2,11 +2,6 @@
 async (page) => {
   if (!['127.0.0.1','localhost'].includes(new URL(page.url()).hostname)) throw Error('Local server required');
   const check=(ok,message)=>{if(!ok)throw Error(message);};
-  const switchView=async name=>{
-    if(!await page.locator('.terminal-view-switch').isVisible()) await page.getByRole('button',{name:'设置',exact:true}).click();
-    await page.getByRole('button',{name,exact:true}).click();
-    await page.locator('.terminal-session.mode-'+(name==='对话'?'dialog':'terminal')).waitFor();
-  };
   const writes=[];
   let socket, sessionId;
   const cdp=await page.context().newCDPSession(page);
@@ -22,9 +17,11 @@ async (page) => {
     if(command==='terminal_write')writes.push(data.data);
     await r.fulfill(command==='terminal_start'?{json:{sessionId,shell:'fixture',cwd:'D:/scroll-check'}}:{status:204});
   });
-  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','terminal');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
+  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','dialog');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
   await page.reload();
   await page.getByLabel('输入内容',{exact:true}).waitFor();
+  await page.locator('.terminal-session.active.mode-terminal').waitFor();
+  check(await page.locator('.terminal-view-switch,.terminal-session.mode-dialog').count()===0,'Legacy dialog preference opens the fixed terminal');
   for(let i=0;i<30&&(!socket||!sessionId);i++)await page.waitForTimeout(100);
   const output=async data=>{socket.send(JSON.stringify({type:'terminalOutput',payload:{sessionId,data}}));await page.waitForTimeout(350);};
   const grip=()=>page.locator('.terminal-quick-scroll-grip');
@@ -114,34 +111,15 @@ async (page) => {
   check(writes.some(data=>data.includes(String.fromCharCode(27))),'TUI drag must still send navigation');
   await output('\x1b[?1049h\x1b[2J\x1b[HFull screen TUI');
   await output('\x1b[?1000l\x1b[?1006l');
-  await switchView('对话');
-  const input=page.getByLabel('输入内容',{exact:true});
-  for(let i=0;i<18;i++){await input.fill('长文字-'+i+'-'+'continuous_code_'.repeat(8));await input.press('Enter');}
-  const log=page.getByLabel('对话记录',{exact:true});
-  // Let textarea auto-height and the terminal fit settle before measuring the drag track.
-  await page.waitForTimeout(450);
-  await dragTo(0,true);
-  check(await log.evaluate(el=>el.scrollTop)===0,'Dialog touch drag must reach top');
-  await output('\x1b[3;1H新的思考过程');
-  check(await log.evaluate(el=>el.scrollTop)===0,'Dialog output must preserve dragged position');
-  await dragTo(1);
-  check(await log.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)<2,'Dialog drag must reach bottom');
-  const dialogWheelBefore=(await grip().boundingBox()).y, logRect=await log.boundingBox();
-  await page.mouse.move(logRect.x+logRect.width/2,logRect.y+logRect.height/2);
-  await page.mouse.wheel(0,-200); await page.waitForTimeout(150);
-  check((await grip().boundingBox()).y<dialogWheelBefore,'Dialog wheel must synchronize its scrollbar');
-  await dragTo(1);
   await output('\x1b[?1049l');
-  await switchView('终端');
   check(await grip().getAttribute('role')==='slider','Leaving TUI must restore the real history scrollbar');
-  await switchView('对话');
-  async function checkCompact(mode,touch){
-    const bounds=await page.evaluate(mode=>{
+  async function checkCompact(touch){
+    const bounds=await page.evaluate(()=>{
       const root=document.querySelector('.terminal-quick-scroll');
       const rail=root.querySelector('.terminal-quick-scroll-track');
       const thumb=root.querySelector('.terminal-quick-scroll-grip');
       const control=root.getBoundingClientRect(), g=thumb.getBoundingClientRect();
-      const text=document.querySelector(mode==='终端'?'.terminal-host':'.terminal-dialog-log');
+      const text=document.querySelector('.terminal-host');
       const textRect=text.getBoundingClientRect();
       const content=root.parentElement.getBoundingClientRect();
       const visible=getComputedStyle(thumb,'::before');
@@ -150,7 +128,7 @@ async (page) => {
         const s=getComputedStyle(el);
         return s.backgroundColor==='rgba(0, 0, 0, 0)'&&parseFloat(s.borderLeftWidth)===0&&s.boxShadow==='none';
       });
-      const viewport=mode==='对话'?text.clientHeight:document.querySelector('.xterm-rows').children.length;
+      const viewport=document.querySelector('.xterm-rows').children.length;
       const maximum=Number(thumb.getAttribute('aria-valuemax'));
       const expectedHeight=Math.min(control.height,Math.max(32,control.height*viewport/(maximum+viewport)));
       return {
@@ -158,11 +136,10 @@ async (page) => {
         hitWidth:g.width,visibleWidth:parseFloat(visible.width),visibleHeight:parseFloat(visible.height),
         gutter:content.right-textRect.right,transparent,
         proportional:Math.abs(g.height-expectedHeight)<1,
-        textOverflow:mode==='对话'&&text.scrollWidth>text.clientWidth,
         pageOverflow:document.documentElement.scrollWidth>innerWidth,
       };
-    },mode);
-    check(bounds.clear&&bounds.inside&&!bounds.textOverflow&&!bounds.pageOverflow,'Text/control bounds: '+JSON.stringify(bounds));
+    });
+    check(bounds.clear&&bounds.inside&&!bounds.pageOverflow,'Text/control bounds: '+JSON.stringify(bounds));
     check(bounds.hitWidth===(touch?32:18)&&bounds.visibleWidth===(touch?8:6)&&bounds.visibleHeight>=31.9&&bounds.proportional,'Proportional scrollbar size: '+JSON.stringify(bounds));
     check(Math.abs(bounds.gutter-12)<1&&bounds.transparent,'Rail must remain compact and transparent: '+JSON.stringify(bounds));
     check(await page.locator('.terminal-quick-scroll-step').count()===0,'Large arrow buttons must not return');
@@ -172,11 +149,8 @@ async (page) => {
     await page.setViewportSize({width,height});
     await page.waitForTimeout(200);
     await dragTo(0.4,touch);
-    for(const mode of ['对话','终端']){
-      await switchView(mode);
-      await checkCompact(mode,touch);
-      await page.screenshot({path:'output/playwright/quick-scroll-'+(mode==='终端'?'tui':'dialog')+'-'+width+'x'+height+'.png'});
-    }
+    await checkCompact(touch);
+    await page.screenshot({path:'output/playwright/quick-scroll-tui-'+width+'x'+height+'.png'});
     await output('\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[HTUI responsive check');
     await dragTo(0.3,touch);
     check(await grip().getAttribute('role')===null,'TUI grip must remain available after resize');
@@ -187,24 +161,21 @@ async (page) => {
     check(programBounds.inside&&Math.abs(programBounds.height-programBounds.expected)<1,'TUI grip must adapt to viewport height: '+JSON.stringify(programBounds));
     await page.screenshot({path:'output/playwright/tui-drag-'+width+'x'+height+'.png'});
     await output('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
-    await switchView('对话');
   }
   await page.route('**/api/set_terminal_appearance',r=>r.fulfill({json:{projects:[],activeProjectId:null,terminalAppearance:r.request().postDataJSON().appearance}}));
   await page.getByRole('button',{name:'设置',exact:true}).click();
+  check(await page.getByRole('dialog',{name:'工作区设置',exact:true}).getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
   await page.getByRole('button',{name:'浅色',exact:true}).click();
   await page.getByRole('spinbutton',{name:'字号',exact:true}).fill('22');
   await page.getByRole('spinbutton',{name:'字号',exact:true}).press('Tab');
   await page.getByRole('button',{name:'设置',exact:true}).click();
   // 1920x1230 physical display at 150% scaling: 1280x820 CSS pixels.
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1280,height:820,deviceScaleFactor:1.5,mobile:false});
-  for(const mode of ['对话','终端']){
-    await switchView(mode);
-    await page.waitForTimeout(200);
-    await dragTo(0.4);
-    await checkCompact(mode,false);
-    await page.mouse.move(200,100);
-    await page.screenshot({path:'output/playwright/compact-light-150-'+(mode==='终端'?'tui':'dialog')+'.png'});
-  }
+  await page.waitForTimeout(200);
+  await dragTo(0.4);
+  await checkCompact(false);
+  await page.mouse.move(200,100);
+  await page.screenshot({path:'output/playwright/compact-light-150-tui.png'});
   await cdp.send('Emulation.clearDeviceMetricsOverride');
-  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','TUI navigation without invented movement','exit TUI restores history','dialog drag','phone/tablet/desktop and short-height visual boundaries','track click paging','proportional thumb and 12px gutter','light theme at 150% display scaling and 22px text']};
+  return {passed:['empty history','touch and mouse history drag','text changes','no focus/input theft','output preserves position','cancel then re-drag','keyboard Home/End','TUI navigation without invented movement','exit TUI restores history','fixed terminal with legacy dialog preference','phone/tablet/desktop and short-height visual boundaries','track click paging','proportional thumb and 12px gutter','light theme at 150% display scaling and 22px text']};
 }

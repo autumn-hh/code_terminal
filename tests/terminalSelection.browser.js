@@ -16,9 +16,10 @@ async (page) => {
     if(command==='terminal_write')writes.push(body.data);
     await r.fulfill(command==='terminal_start'?{json:{sessionId,shell:'Selection fixture',cwd:'D:/selection'}}:{status:204});
   });
-  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','terminal');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
+  await page.evaluate(()=>{localStorage.setItem('code-terminal-view-mode','dialog');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
   await page.reload();
   await page.locator('.xterm-rows').waitFor();
+  check(await page.locator('.terminal-session.mode-dialog,.terminal-view-switch').count()===0,'Legacy dialog preference still opens terminal selection');
   for(let i=0;i<40&&(!socket||!sessionId);i++)await page.waitForTimeout(100);
   check(socket&&sessionId,'Fixture ready');
   const output=async data=>{socket.send(JSON.stringify({type:'terminalOutput',payload:{sessionId,data}}));await page.waitForTimeout(250);};
@@ -96,27 +97,18 @@ async (page) => {
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:sw.x,y:sw.y+100}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await page.waitForTimeout(150);
   check(writes.some(s=>s.includes('\x1b[<64;'))&&!await actions.count(),'Quick swipe still scrolls TUI without selection');
-  // Native dialog selection gets the same actions and preserves multiline text.
-  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'对话',exact:true}).click();
-  if(await page.locator('.settings-popover').isVisible())await page.getByRole('button',{name:'设置',exact:true}).click();
-  await input.fill('selected dialog text');await input.press('Enter');await page.waitForTimeout(250);writes.length=0;
-  const bubble=page.locator('.terminal-dialog-bubble').filter({hasText:'selected dialog text'}).last();
-  await bubble.evaluate(el=>{const r=document.createRange();r.setStart(el.firstChild,0);r.setEnd(el.firstChild,8);const s=window.getSelection();s.removeAllRanges();s.addRange(r);});
-  await copy.click();check(await page.evaluate(()=>navigator.clipboard.readText())==='selected','Dialog selected copy');
-  await paste.click();check(await input.inputValue()==='selected'&&writes.length===0,'Dialog selected paste never submits');
-  await input.fill('第一行中文 😀\n  const amount = 12345678901234567890.123456;\n'+ 'continuous_code_'.repeat(30));
-  await input.press('Enter');await page.waitForTimeout(250);writes.length=0;
-  const longBubble=page.locator('.terminal-dialog-bubble').filter({hasText:'第一行中文'}).last();
-  await longBubble.evaluate(el=>{const r=document.createRange();r.selectNodeContents(el);const s=window.getSelection();s.removeAllRanges();s.addRange(r);});
-  await copy.click();
-  check((await page.evaluate(()=>navigator.clipboard.readText())).replaceAll('\r\n','\n')===await longBubble.textContent(),'Multiline Unicode, indentation, long codes and amount precision preserved');
-  await page.screenshot({path:'output/playwright/selection-dialog-long.png'});
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  const settings=page.getByRole('dialog',{name:'工作区设置',exact:true});
+  check(await settings.getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
+  await settings.getByRole('button',{name:'关闭设置',exact:true}).click();
+  await output('\x1b[2J\x1b[H'+sample+'\r\n中文输出 😀\r\n');
+  await drag(5.2,14.2);
   await page.evaluate(()=>{const shell=document.querySelector('.shell');shell.style.zoom='1.5';shell.style.setProperty('--app-viewport-height',innerHeight/1.5+'px');});
   await page.waitForTimeout(200);
   await page.screenshot({path:'output/playwright/selection-zoom150.png'});
   check(await actions.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}),'150% zoom action boundaries');
   await page.evaluate(()=>{const shell=document.querySelector('.shell');shell.style.zoom='';shell.style.removeProperty('--app-viewport-height');});
   await page.keyboard.press('Escape');
-  console.log('PASS: desktop/TUI drag, phone long press and handles, exact copy, HTTP fallback/denial, paste preserving draft, no submission, Ctrl+C, TUI clicks/swipes, dialog selection and viewport boundaries.');
-  return {passed:true,coverage:'desktop/TUI selection; phone long press/handles; copy/fallback/denial; draft insertion; shortcuts; TUI click/scroll; dialog Unicode/multiline; viewport and 150% zoom'};
+  console.log('PASS: desktop/TUI drag, phone long press and handles, exact copy, HTTP fallback/denial, paste preserving draft, no submission, Ctrl+C, TUI clicks/swipes, fixed terminal and viewport boundaries.');
+  return {passed:true,coverage:'desktop/TUI selection; phone long press/handles; copy/fallback/denial; draft insertion; shortcuts; TUI click/scroll; legacy dialog preference; viewport and 150% zoom'};
 }

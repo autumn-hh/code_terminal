@@ -4,10 +4,6 @@ async (page) => {
   if (!['127.0.0.1', 'localhost'].includes(new URL(page.url()).hostname)) {
     throw new Error('Run this fixture only against a local test server');
   }
-  const switchView = async name => {
-    if (!await page.locator('.terminal-view-switch').isVisible()) await page.getByRole('button',{name:'设置',exact:true}).click();
-    await page.getByRole('button',{name,exact:true}).click();
-  };
   const writes = [];
   let socket;
   const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -28,11 +24,13 @@ async (page) => {
     await route.fulfill(command==='terminal_start'?{json:{sessionId:body.sessionId,shell:'UI fixture',cwd:'D:/mobile-check'}}:{status:204});
   });
   await page.evaluate(() => {
-    localStorage.setItem('code-terminal-view-mode', 'terminal');
+    localStorage.setItem('code-terminal-view-mode', 'dialog');
     localStorage.setItem('opencode-workbench.mobile-chrome-hidden', 'false');
   });
   await page.reload();
   await input.waitFor();
+  await page.locator('.terminal-session.active.mode-terminal').waitFor();
+  check(await page.locator('.terminal-view-switch,.terminal-session.mode-dialog').count()===0,'Legacy dialog preference opens the fixed terminal');
   for (let attempt=0; attempt<30 && (!socket || !startedId); attempt++) await page.waitForTimeout(100);
   check(socket && startedId, 'Terminal fixture must be ready');
   const output=async(data)=>{socket.send(JSON.stringify({type:'terminalOutput',payload:{sessionId:startedId,data}}));await page.waitForTimeout(300);};
@@ -100,24 +98,7 @@ async (page) => {
   await page.waitForTimeout(50);
   check(writes.length===1 && writes[0].data==='\x1bOA','Shortcut must respect application cursor mode');
   await output('\x1b[?1l');
-  await switchView('对话');
-  for(let i=0;i<12;i++){await input.fill(`长命令-${i}-`+'continuous_code_'.repeat(5));await input.press('Enter');}
-  const log=page.getByLabel('对话记录',{exact:true});
-  await page.waitForTimeout(200);
-  await log.evaluate(el=>el.scrollTop=80);
-  await page.waitForTimeout(80);
-  const position=await log.evaluate(el=>el.scrollTop);
-  await output('\x1b[3;1H\x1b[2m新增思考过程，不应打断阅读\x1b[0m');
-  check(Math.abs(await log.evaluate(el=>el.scrollTop)-position)<3,'Incoming output must preserve reading position');
-  await switchView('终端');
-  await switchView('对话');
-  await page.waitForTimeout(200);
-  check(Math.abs(await log.evaluate(el=>el.scrollTop)-position)<3,'Switching views must preserve reading position');
-  await page.getByRole('button',{name:'↓ 回到最新',exact:true}).click();
-  check(await log.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)<3,'Latest must restore follow');
-  await output('\x1b[4;1H后续输出继续跟随');
-  check(await log.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)<3,'Follow must continue after latest');
-  await page.screenshot({path:'output/playwright/mobile-dialog-390.png'});
+  await page.screenshot({path:'output/playwright/mobile-terminal-390.png'});
   const sizes=[[390,844],[360,740],[360,420],[320,568]];
   for(const [width,height] of sizes){
     await page.setViewportSize({width,height});
@@ -126,14 +107,15 @@ async (page) => {
       const toolbar=document.querySelector('.terminal-bar').getBoundingClientRect();
       const content=document.querySelector('.terminal-session-content').getBoundingClientRect();
       const form=document.querySelector('.terminal-composer').getBoundingClientRect();
-      return {overlap:toolbar.bottom>content.top+1,overflow:document.documentElement.scrollWidth>innerWidth,formBottom:form.bottom,height:innerHeight,logOverflow:document.querySelector('.terminal-dialog-log').scrollWidth>document.querySelector('.terminal-dialog-log').clientWidth};
+      const terminal=document.querySelector('.terminal-host').getBoundingClientRect();
+      return {overlap:toolbar.bottom>content.top+1,overflow:document.documentElement.scrollWidth>innerWidth,formBottom:form.bottom,height:innerHeight,terminalInside:terminal.left>=content.left&&terminal.right<=content.right};
     });
-    check(!bounds.overlap&&!bounds.overflow&&!bounds.logOverflow&&bounds.formBottom<=bounds.height,`Layout failed ${width}x${height}: ${JSON.stringify(bounds)}`);
-    check(await log.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop)<3,'Resize must preserve follow at bottom');
+    check(!bounds.overlap&&!bounds.overflow&&bounds.terminalInside&&bounds.formBottom<=bounds.height,`Layout failed ${width}x${height}: ${JSON.stringify(bounds)}`);
     await page.screenshot({path:`output/playwright/mobile-verified-${width}x${height}.png`});
   }
   await page.setViewportSize({width:360,height:740});
   await page.getByRole('button',{name:'设置',exact:true}).click();
+  check(await page.getByRole('dialog',{name:'工作区设置',exact:true}).getByRole('button',{name:/^(对话|终端)$/}).count()===0,'Settings has no retired view buttons');
   await page.route('**/api/set_terminal_appearance', route=>route.fulfill({json:{projects:[],activeProjectId:null,terminalAppearance:route.request().postDataJSON().appearance}}));
   await page.getByRole('spinbutton',{name:'字号',exact:true}).fill('22');
   await page.getByRole('spinbutton',{name:'字号',exact:true}).press('Tab');
@@ -213,7 +195,8 @@ async (page) => {
   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.setViewportSize({width:1280,height:820});
   check(!await page.locator('.terminal-composer-keys').isVisible(),'Desktop mouse layout must keep touch shortcuts hidden');
-  await switchView('终端');
+  check(await page.locator('.terminal-session.active.mode-terminal').isVisible(),'Desktop remains in terminal view');
+  check(await page.locator('.terminal-view-switch').count()===0,'Desktop has no retired view switch');
   await page.screenshot({path:'output/playwright/mobile-change-desktop-1280.png'});
-  return {passed:['mobile beforeinput','empty Enter/button','Shift+Enter','Chinese composition','Tab completion without submit','delayed bracketed paste','touch shell history without keyboard','alternate TUI navigation','SGR mouse wheel','application cursor mode','reading position across output and switches','return to latest','390/360/320 and keyboard-height boundaries','22px text','hide/restore toolbar','long input','collapse/expand','horizontal shortcuts','desktop switch']};
+  return {passed:['mobile beforeinput','empty Enter/button','Shift+Enter','Chinese composition','Tab completion without submit','delayed bracketed paste','touch shell history without keyboard','alternate TUI navigation','SGR mouse wheel','application cursor mode','390/360/320 and keyboard-height boundaries','22px text','hide/restore toolbar','long input','collapse/expand','horizontal shortcuts','fixed terminal with legacy dialog preference']};
 }

@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-10-29"
+updated: "2026-11-20"
 
 project:
   name: "Code Terminal"
@@ -114,7 +114,7 @@ validation:
     - "npm run build"
     - "npm run bundle:mac"
   mobile_ui:
-    compact_header: "On coarse-pointer devices and widths <=480px, use one 48px row for project entry, scrollable labeled session tabs, new session and settings. Hide repeated workspace and single-pane title; keep titles for multiple visible tiles. Move dialog/terminal selection into settings without dropping saved mode or transcript. Keep desktop chrome and temporary keyboard layout. Verify with tests/mobileHeader.browser.js."
+    compact_header: "On coarse-pointer devices and widths <=480px, use one 48px row for project entry, scrollable labeled session tabs, new session and settings. Hide repeated workspace and single-pane title; keep titles for multiple visible tiles. Terminal is the only view; remove dialog/terminal selectors from the pane and settings and ignore legacy saved dialog mode. Keep desktop chrome and temporary keyboard layout. Verify with tests/mobileHeader.browser.js."
     keyboard_regression: "Run tests/mobileKeyboard.browser.js through playwright-cli against a dedicated local full server. Simulate visualViewport-only shrinking and layout viewport resizing; assert usable TUI height with empty/long input and attachments at visible heights 420/360/280, keyboard-close restoration, 22px text, touch widths 320–1024, and desktop/zoom exclusion. Chromium simulation is not Android hardware IME validation."
     viewports:
       - "390x844"
@@ -137,13 +137,13 @@ ux_memory:
     - "Toolbar/actions must not squeeze the color/theme/font controls."
     - "Appearance controls should wrap, scroll, or collapse instead of compressing."
     - "Font-size and line-height steppers must not overlap on phone widths; validate their groups, steppers, and inputs separately."
-    - "Mobile view switches occupy a separate toolbar above terminal content; keep touch targets at least 44px high, including short software-keyboard viewports."
+    - "User removed the dialog/terminal switch on 2026-11-20. Always show the terminal on desktop and mobile, without an empty switch toolbar; preserve the bottom composer and tab/tile layouts."
     - "Touch swipes scroll normal terminal history locally and use xterm wheel handling for alternate-screen or mouse-aware TUIs; swiping must not focus the terminal keyboard."
     - "Dialog output follows only while at the bottom; preserve reading position during incoming output and view switches, with a return-to-latest control."
     - "The mobile composer opens by default and offers horizontally scrolling TUI keys. Tab transfers a single-line draft for completion without Enter; an empty send button confirms the TUI."
     - "Touch composer controls depend on pointer: coarse, not a maximum viewport width; unfolded phones/tablets must retain shortcuts above 720px, across folding and keyboard-height changes."
     - "Tablets use the touch project drawer and non-overlapping terminal toolbar in portrait and landscape; above 720px show terminal tab labels, bound the settings panel width, and retain 44px input/action targets. Mouse desktops retain their layout."
-    - "Both views use a Word-style history scrollbar: a slim 6px desktop / 8px touch thumb tracks reading position and viewport-to-content ratio (32px minimum, capped by track height); drag to seek, click the transparent 12px track to page. No fixed-center handle, wide gray rail or large arrow buttons. The thumb has an 18px / 32px transparent hit target. Program-managed TUIs retain a movable grip at 10% of track height, bounded to 32-72px and capped by the track; it sends relative wheel input, supports edge-hold scrolling until release, and track-click paging without claiming a percentage. Leaving TUI restores the history scrollbar. Empty normal history has no slider."
+    - "The terminal uses a Word-style history scrollbar: a slim 6px desktop / 8px touch thumb tracks reading position and viewport-to-content ratio (32px minimum, capped by track height); drag to seek, click the transparent 12px track to page. No fixed-center handle, wide gray rail or large arrow buttons. The thumb has an 18px / 32px transparent hit target. Program-managed TUIs retain a movable grip at 10% of track height, bounded to 32-72px and capped by the track; it sends relative wheel input, supports edge-hold scrolling until release, and track-click paging without claiming a percentage. Leaving TUI restores the history scrollbar. Empty normal history has no slider."
   terminal_input:
     - "Draft attachments show filename chips with a remove button, including when composer is collapsed. Removing drops that path from the draft while preserving other text/files. The draft text is authoritative: manual deletion, Escape, send and Tab transfer clear stale entries/counts. Removal affects the pending message reference, not stored files or attachments already passed to a TUI."
     - "Web attachments use authenticated binary POST /api/upload_attachment?name=... with Bearer header, authorization before body read, and a 25 MiB body limit. Store under the state file parent uploads/UUID/sanitized-name (not dist); Unix directory/file permissions 0700/0600. Desktop uses save_attachment with the same storage helper under temp. Files persist for later TUI reads; no automatic deletion yet."

@@ -255,7 +255,6 @@ export function App() {
     backgroundSupported: false,
     backgroundBusy: false,
     keepAlive: false,
-    viewMode: "terminal",
     displayMode: "tiles",
     canInterrupt: false,
     canRestart: true,
@@ -1648,18 +1647,6 @@ export function App() {
                 <X size={15} />
               </button>
             </header>
-
-            <div className="settings-row settings-view-mode">
-              <span className="settings-row-label">显示内容</span>
-              <div className="settings-segments" role="group" aria-label="显示模式">
-                <button type="button" aria-pressed={terminalControlState.viewMode === "terminal"}
-                  className={terminalControlState.viewMode === "terminal" ? "active" : ""}
-                  onClick={() => requestTerminalControl("show-terminal", true)}>终端</button>
-                <button type="button" aria-pressed={terminalControlState.viewMode === "dialog"}
-                  className={terminalControlState.viewMode === "dialog" ? "active" : ""}
-                  onClick={() => requestTerminalControl("show-dialog", true)}>对话</button>
-              </div>
-            </div>
 
             <div className="settings-row">
               <span className="settings-row-label">终端布局</span>
