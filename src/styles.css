@@ -2271,6 +2271,7 @@ textarea {
 }
 
 .terminal-cell-meta {
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -2279,6 +2280,7 @@ textarea {
 }
 
 .terminal-cell-title {
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -4277,3 +4279,38 @@ textarea {
 .touch-keyboard-open .terminal-draft-attachment {
   flex: 0 0 auto;
 }
+
+.terminal-tab-main.has-session-name {
+  max-width: min(280px, 58vw);
+}
+
+.terminal-tab-main > span.terminal-session-name,
+.terminal-cell-title > span.terminal-session-name {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.terminal-session-name > .terminal-title-project {
+  flex: 0 0 auto;
+  max-width: 46%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-session-name > .terminal-title-separator {
+  flex: 0 0 auto;
+  white-space: pre;
+}
+
+.terminal-session-name > .terminal-title-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-cell-state { flex-shrink: 0; }

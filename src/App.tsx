@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CodexSessionCache, codexSessionProjectKey } from "./codexSessionCache";
 import {
   canUseNativeOpenDialog,
   closeWindow,
@@ -222,6 +223,7 @@ export function App() {
   const [openingProjectWindowId, setOpeningProjectWindowId] = useState<string | null>(null);
   const [openingProjectFolderId, setOpeningProjectFolderId] = useState<string | null>(null);
   const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
+  const [codexSessionCache] = useState(() => new CodexSessionCache(() => window.localStorage));
   const [codexSessionsByProject, setCodexSessionsByProject] = useState<Record<string, CodexSessionSummary[]>>({});
   const [loadingCodexSessionProjectIds, setLoadingCodexSessionProjectIds] = useState<Set<string>>(new Set());
   const [codexSessionErrors, setCodexSessionErrors] = useState<Record<string, string | null>>({});
@@ -561,8 +563,8 @@ export function App() {
     if (!currentProject?.id) return;
 
     setExpandedSessionProjectId(currentProject.id);
-    void loadCodexSessions(currentProject.id);
-  }, [currentProject?.id]);
+    void loadCodexSessions(currentProject);
+  }, [currentProject?.id, currentProject?.path]);
 
   useEffect(() => {
     if (!draggedProjectId) return;
@@ -701,18 +703,26 @@ export function App() {
     setMobileProjectsOpen(false);
   }
 
-  async function loadCodexSessions(projectId: string) {
-    setLoadingCodexSessionProjectIds((current) => new Set(current).add(projectId));
-    setCodexSessionErrors((current) => ({ ...current, [projectId]: null }));
+  async function loadCodexSessions(project: { id: string; path: string }, force = false) {
+    const key = codexSessionProjectKey(project);
+    const cached = codexSessionCache.get(project);
+    if (!force && cached !== undefined) {
+      setCodexSessionsByProject((current) => ({ ...current, [key]: cached }));
+      return;
+    }
+
+    setLoadingCodexSessionProjectIds((current) => new Set(current).add(key));
+    setCodexSessionErrors((current) => ({ ...current, [key]: null }));
     try {
-      const sessions = await invoke<CodexSessionSummary[]>("list_codex_sessions", { projectId });
-      setCodexSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
+      const sessions = await codexSessionCache.load(project, () =>
+        invoke<CodexSessionSummary[]>("list_codex_sessions", { projectId: project.id }), force);
+      setCodexSessionsByProject((current) => ({ ...current, [key]: sessions }));
     } catch (err) {
-      setCodexSessionErrors((current) => ({ ...current, [projectId]: String(err) }));
+      setCodexSessionErrors((current) => ({ ...current, [key]: String(err) }));
     } finally {
       setLoadingCodexSessionProjectIds((current) => {
         const next = new Set(current);
-        next.delete(projectId);
+        next.delete(key);
         return next;
       });
     }
@@ -720,6 +730,7 @@ export function App() {
 
   async function selectProject(projectId: string) {
     if (currentProject?.id === projectId) {
+      if (expandedSessionProjectId !== projectId) void loadCodexSessions(currentProject);
       setExpandedSessionProjectId((current) => (current === projectId ? null : projectId));
       return;
     }
@@ -728,7 +739,7 @@ export function App() {
     await setActive(projectId);
   }
 
-  async function resumeCodexSession(projectId: string, sessionId: string) {
+  async function resumeCodexSession(projectId: string, sessionId: string, title: string) {
     setError(null);
     setSelectedCodexSessionId(sessionId);
     if (currentProject?.id !== projectId) {
@@ -740,6 +751,7 @@ export function App() {
       id: sessionResumeRequestIdRef.current,
       projectId,
       sessionId,
+      title,
     });
     setMobileProjectsOpen(false);
   }
@@ -747,8 +759,10 @@ export function App() {
   async function refreshProjectData() {
     const updated = await loadState();
     const projectId = currentProject?.id || updated.activeProjectId || updated.projects[0]?.id;
-    if (projectId) {
-      await loadCodexSessions(projectId);
+    const project = updated.projects.find((item) => item.id === projectId) ??
+      updated.projects.find((item) => item.id === updated.activeProjectId) ?? updated.projects[0];
+    if (project) {
+      await loadCodexSessions(project, true);
     }
   }
 
@@ -1435,9 +1449,10 @@ export function App() {
               state.projects.map((project) => {
                 const isActiveProject = project.id === currentProject?.id;
                 const isSessionsExpanded = isActiveProject && expandedSessionProjectId === project.id;
-                const sessions = codexSessionsByProject[project.id] || [];
-                const sessionsLoading = loadingCodexSessionProjectIds.has(project.id);
-                const sessionsError = codexSessionErrors[project.id];
+                const sessionKey = codexSessionProjectKey(project);
+                const sessions = codexSessionsByProject[sessionKey] ?? codexSessionCache.get(project) ?? [];
+                const sessionsLoading = loadingCodexSessionProjectIds.has(sessionKey);
+                const sessionsError = codexSessionErrors[sessionKey];
 
                 return (
                   <div className="project-group" key={project.id}>
@@ -1499,23 +1514,25 @@ export function App() {
                       >
                         <div className="project-sessions-heading">
                           <span>历史会话</span>
-                          {!sessionsLoading && !sessionsError && <small>{sessions.length}</small>}
+                          <small>{sessions.length}</small>
                         </div>
-                        {sessionsLoading ? (
+                        {sessionsLoading && (
                           <div className="project-session-status">正在读取...</div>
-                        ) : sessionsError ? (
+                        )}
+                        {sessionsError && (
                           <button
                             className="project-session-status action"
                             type="button"
                             title={sessionsError}
-                            onClick={() => void loadCodexSessions(project.id)}
+                            onClick={() => void loadCodexSessions(project, true)}
                           >
                             读取失败，点击重试
                           </button>
-                        ) : sessions.length === 0 ? (
+                        )}
+                        {!sessionsLoading && !sessionsError && sessions.length === 0 && (
                           <div className="project-session-status">暂无历史会话</div>
-                        ) : (
-                          sessions.map((session) => (
+                        )}
+                        {sessions.map((session) => (
                             <button
                               className={`project-session-item ${
                                 selectedCodexSessionId === session.id ? "active" : ""
@@ -1523,14 +1540,13 @@ export function App() {
                               key={session.id}
                               type="button"
                               title={`${session.title}\n${session.cwd}`}
-                              onClick={() => void resumeCodexSession(project.id, session.id)}
+                              onClick={() => void resumeCodexSession(project.id, session.id, session.title)}
                             >
                               <MessageSquare size={13} />
                               <span>{session.title}</span>
                               <small>{formatRelativeTime(session.updatedAt)}前</small>
                             </button>
-                          ))
-                        )}
+                          ))}
                       </div>
                     )}
                   </div>

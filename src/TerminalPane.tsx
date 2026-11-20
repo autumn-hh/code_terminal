@@ -24,6 +24,7 @@ import { formatPastedImagePath } from "./clipboardImages";
 import { uploadAttachment } from "./tauriRuntime";
 import { createClientId } from "./ids";
 import { getTabIdForProjectFocus } from "./terminalTabFocus";
+import { parseTabNameCommand, readSessionName, saveSessionName, sessionNameFromTitle } from "./terminalTitle";
 import type { ServerTerminalSession, TerminalAppearanceSettings, TerminalCommandRequest } from "./types";
 
 interface TerminalPaneProps {
@@ -47,6 +48,7 @@ export interface CodexSessionResumeRequest {
   id: number;
   projectId: string;
   sessionId: string;
+  title?: string;
 }
 
 export type TerminalDisplayMode = "tabs" | "tiles";
@@ -82,6 +84,8 @@ interface TerminalTab {
   projectPath?: string | null;
   title: string;
   attachSessionId?: string;
+  automaticName?: string;
+  customName?: string | null;
 }
 
 interface TerminalTabsState {
@@ -189,6 +193,15 @@ function projectTitle(name?: string | null, index?: number) {
   return index && index > 1 ? `${trimmedName} · ${index}` : trimmedName;
 }
 
+function SessionTitle({project, name, fallback}: {project?: string | null; name?: string; fallback: string}) {
+  if (!name || !project) return <span className="terminal-session-name">{name || fallback}</span>;
+  return <span className="terminal-session-name">
+    <span className="terminal-title-project">{project}</span>
+    <span className="terminal-title-separator"> · </span>
+    <span className="terminal-title-name">{name}</span>
+  </span>;
+}
+
 function createTerminalTab(index: number, project?: TerminalProjectBinding): TerminalTab {
   const projectName = project?.name?.trim() || null;
 
@@ -206,6 +219,8 @@ function bindTerminalTab(tab: TerminalTab, index: number, project: TerminalProje
 
   return {
     ...tab,
+    automaticName: "",
+    customName: null,
     projectId: project.id || null,
     projectName,
     projectPath: project.path || null,
@@ -542,6 +557,24 @@ export function TerminalPane({
     if (composerComposingRef.current || uploadControllerRef.current) return;
     const value = inputValue.trimEnd();
     if (!value) return;
+
+    const rename = parseTabNameCommand(value);
+    if (rename) {
+      if (rename.error) { onError(rename.error); return; }
+      setTerminalTabs(current => ({
+        ...current,
+        tabs: current.tabs.map(tab => {
+          if (tab.id !== current.activeTabId) return tab;
+          const sessionId = tabRuntime[tab.id]?.session?.sessionId;
+          if (sessionId) saveSessionName(sessionId, {automatic:tab.automaticName || "",custom:rename.name});
+          return {...tab,customName:rename.name};
+        }),
+      }));
+      setComposerInputValue("");
+      setUploadStatus("");
+      focusComposer();
+      return;
+    }
 
     const activeTerminal = terminalHandlesRef.current[terminalTabs.activeTabId];
     if (!activeTerminal) return;
@@ -1040,6 +1073,22 @@ export function TerminalPane({
       ...current,
       [tabId]: runtime,
     }));
+    setTerminalTabs(current => {
+      let changed = false;
+      const tabs = current.tabs.map(tab => {
+        if (tab.id !== tabId) return tab;
+        const id = runtime.session?.sessionId;
+        const saved = id ? readSessionName(id) : null;
+        const reported = runtime.windowTitle === null ? null : sessionNameFromTitle(runtime.windowTitle, tab.projectName, runtime.session?.cwd || tab.projectPath);
+        const automaticName = reported ?? tab.automaticName ?? saved?.automatic ?? "";
+        const customName = tab.customName === undefined ? saved?.custom ?? null : tab.customName;
+        if (automaticName === (tab.automaticName || "") && customName === tab.customName) return tab;
+        changed = true;
+        if (id) saveSessionName(id, {automatic:automaticName,custom:customName});
+        return {...tab,automaticName,customName};
+      });
+      return changed ? {...current,tabs} : current;
+    });
   }, []);
 
   useEffect(() => {
@@ -1161,7 +1210,8 @@ export function TerminalPane({
     }
 
     const tabId = projectTab.id;
-    setTerminalTabs((current) => ({ ...current, activeTabId: tabId }));
+    setTerminalTabs((current) => ({ ...current, activeTabId: tabId,
+      tabs:current.tabs.map(tab => tab.id === tabId ? {...tab,automaticName:sessionResumeRequest.title || "",customName:null} : tab) }));
     window.setTimeout(() => {
       void terminalHandlesRef.current[tabId]?.resumeCodexSession(sessionResumeRequest.sessionId);
     }, 0);
@@ -1180,6 +1230,8 @@ export function TerminalPane({
     const name = session.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() || session.shell;
     const tab = createTerminalTab(nextTabIndexRef.current++, { id: session.projectId, name, path: session.cwd });
     tab.attachSessionId = session.sessionId;
+    const savedName = readSessionName(session.sessionId);
+    if (savedName) { tab.automaticName = savedName.automatic; tab.customName = savedName.custom; }
     setTerminalTabs(current => ({ tabs: [...current.tabs, tab], activeTabId: tab.id }));
   }, [terminalAttachRequest]);
 
@@ -1256,6 +1308,7 @@ export function TerminalPane({
   }
 
   function restartActiveTerminal() {
+    setTerminalTabs(current => ({...current,tabs:current.tabs.map(tab => tab.id === current.activeTabId ? {...tab,automaticName:""} : tab)}));
     void terminalHandlesRef.current[terminalTabs.activeTabId]?.restartSession();
   }
 
@@ -1306,6 +1359,8 @@ export function TerminalPane({
               const runtime = tabRuntime[tab.id];
               const isActive = tab.id === terminalTabs.activeTabId;
               const { status } = getTerminalRuntimeStatus(runtime);
+              const name = tab.customName || tab.automaticName;
+              const title = name ? (tab.projectName ? tab.projectName + " · " : "") + name : tab.title;
 
               return (
                 <div
@@ -1316,15 +1371,15 @@ export function TerminalPane({
                   }}
                 >
                   <button
-                    className="terminal-tab-main"
+                    className={"terminal-tab-main" + (name ? " has-session-name" : "")}
                     role="tab"
                     aria-selected={isActive}
-                    aria-label={tab.title}
-                    title={runtime?.session?.cwd || tab.projectPath || tab.title}
+                    aria-label={title}
+                    title={title + "\n" + (runtime?.session?.cwd || tab.projectPath || "")}
                     onClick={() => focusTerminal(tab.id)}
                   >
                     <span className={`terminal-tab-dot ${status}`} />
-                    <span>{tab.title}</span>
+                    <SessionTitle project={tab.projectName} name={name} fallback={tab.title} />
                   </button>
                   <button
                     className="terminal-tab-close"
@@ -1363,6 +1418,8 @@ export function TerminalPane({
           const cwd = runtime?.session?.cwd || tab.projectPath;
           const tabDockTarget = dockTarget?.tabId === tab.id ? dockTarget : null;
           const shouldShowDockCue = Boolean(tabDockTarget && tabDockTarget.zone !== "center");
+          const name = tab.customName || tab.automaticName;
+          const title = name ? (tab.projectName ? tab.projectName + " · " : "") + name : tab.title;
 
           return (
             <div
@@ -1393,9 +1450,9 @@ export function TerminalPane({
                 onPointerUp={finishTileDrag}
               >
                 <span className="terminal-cell-meta">
-                  <span className="terminal-cell-title">
+                  <span className="terminal-cell-title" title={title}>
                     <span className={`terminal-cell-status ${status}`} />
-                    <span>{tab.title}</span>
+                    <SessionTitle project={tab.projectName} name={name} fallback={tab.title} />
                   </span>
                   {status !== "stopped" && (
                     <span className={`terminal-cell-state ${status}`}>{label}</span>

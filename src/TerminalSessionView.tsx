@@ -1,6 +1,7 @@
 import { TerminalQuickScroll, type ScrollPosition } from "./TerminalQuickScroll";
 import { copyTerminalText } from "./terminalClipboard";
 import { TerminalSelection } from "./TerminalSelection";
+import { stableTerminalTitle } from "./terminalTitle";
 import { TerminalProgramScroll, usesProgramScroll } from "./terminalProgramScroll";
 import { terminalPerformance } from "./terminalPerformance";
 import { FitAddon } from "@xterm/addon-fit";
@@ -209,6 +210,7 @@ export interface TerminalSessionRuntime {
   isStarting: boolean;
   viewMode: TerminalViewMode;
   backgroundBusy: boolean;
+  windowTitle: string | null;
 }
 
 export interface TerminalSessionHandle {
@@ -256,6 +258,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     const hostRef = useRef<HTMLDivElement | null>(null);
     const terminalRef = useRef<XTerm | null>(null);
     const [selectionTerminal, setSelectionTerminal] = useState<XTerm | null>(null);
+    const [windowTitle, setWindowTitle] = useState<string | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const sessionIdRef = useRef<string | null>(null);
     const initialAttachSessionRef = useRef(attachSessionId);
@@ -2683,6 +2686,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       lastResizeRef.current = null;
       lastFitHostSizeRef.current = null;
       terminal.reset();
+      setWindowTitle(null);
       writeTuiDebugLog("session-start-request");
 
       try {
@@ -2860,6 +2864,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
       const normalizedSessionId = sessionId.trim();
       if (!normalizedSessionId) return;
 
+      setWindowTitle(null);
       await stopSession();
       setConversationMessages([]);
       pendingRawInputRef.current = formatCommandInput(`codex resume ${normalizedSessionId}`);
@@ -2970,8 +2975,8 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
     }, [appearance.fontSize, appearance.lineHeight]);
 
     useEffect(() => {
-      onRuntimeChange(tabId, { session, isStarting, viewMode, backgroundBusy });
-    }, [isStarting, onRuntimeChange, session, tabId, viewMode, backgroundBusy]);
+      onRuntimeChange(tabId, { session, isStarting, viewMode, backgroundBusy, windowTitle });
+    }, [isStarting, onRuntimeChange, session, tabId, viewMode, backgroundBusy, windowTitle]);
 
     useEffect(() => {
       isActiveRef.current = isActive;
@@ -3011,6 +3016,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
 
       terminal.loadAddon(fit);
       terminal.open(host);
+      const titleDisposable = terminal.onTitleChange(title => setWindowTitle(stableTerminalTitle(title)));
       terminalRef.current = terminal;
       setSelectionTerminal(terminal);
       programScrollRef.current = null;
@@ -3211,6 +3217,7 @@ export const TerminalSessionView = forwardRef<TerminalSessionHandle, TerminalSes
         scrollModeDisposable.dispose();
         scrollPositionDisposable.dispose();
         dataDisposable.dispose();
+        titleDisposable.dispose();
         unlistenOutput.then((unlisten) => unlisten());
         unlistenReconnect.then((unlisten) => unlisten());
         unlistenExit.then((unlisten) => unlisten());
