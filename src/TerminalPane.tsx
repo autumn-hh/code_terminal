@@ -85,6 +85,7 @@ interface TerminalTab {
   title: string;
   attachSessionId?: string;
   automaticName?: string;
+  automaticNameFromHistory?: boolean;
   customName?: string | null;
 }
 
@@ -220,6 +221,7 @@ function bindTerminalTab(tab: TerminalTab, index: number, project: TerminalProje
   return {
     ...tab,
     automaticName: "",
+    automaticNameFromHistory: false,
     customName: null,
     projectId: project.id || null,
     projectName,
@@ -566,7 +568,7 @@ export function TerminalPane({
         tabs: current.tabs.map(tab => {
           if (tab.id !== current.activeTabId) return tab;
           const sessionId = tabRuntime[tab.id]?.session?.sessionId;
-          if (sessionId) saveSessionName(sessionId, {automatic:tab.automaticName || "",custom:rename.name});
+          if (sessionId) saveSessionName(sessionId, {automatic:tab.automaticName || "",custom:rename.name,fromHistory:tab.automaticNameFromHistory});
           return {...tab,customName:rename.name};
         }),
       }));
@@ -1080,12 +1082,18 @@ export function TerminalPane({
         const id = runtime.session?.sessionId;
         const saved = id ? readSessionName(id) : null;
         const reported = runtime.windowTitle === null ? null : sessionNameFromTitle(runtime.windowTitle, tab.projectName, runtime.session?.cwd || tab.projectPath);
-        const automaticName = reported ?? tab.automaticName ?? saved?.automatic ?? "";
+        const fromHistory = tab.automaticNameFromHistory ?? saved?.fromHistory ?? false;
+        const previousName = tab.automaticName ?? saved?.automatic ?? "";
+        // An unnamed Codex startup title is just the project; the exact clicked
+        // history label is still useful until a real session name takes over.
+        const automaticName = reported === "" && fromHistory ? previousName : reported ?? previousName;
+        const automaticNameFromHistory = reported ? false : fromHistory;
         const customName = tab.customName === undefined ? saved?.custom ?? null : tab.customName;
-        if (automaticName === (tab.automaticName || "") && customName === tab.customName) return tab;
+        if (id) saveSessionName(id, {automatic:automaticName,custom:customName,fromHistory:automaticNameFromHistory});
+        if (automaticName === (tab.automaticName || "") && customName === tab.customName
+          && automaticNameFromHistory === tab.automaticNameFromHistory) return tab;
         changed = true;
-        if (id) saveSessionName(id, {automatic:automaticName,custom:customName});
-        return {...tab,automaticName,customName};
+        return {...tab,automaticName,customName,automaticNameFromHistory};
       });
       return changed ? {...current,tabs} : current;
     });
@@ -1211,7 +1219,7 @@ export function TerminalPane({
 
     const tabId = projectTab.id;
     setTerminalTabs((current) => ({ ...current, activeTabId: tabId,
-      tabs:current.tabs.map(tab => tab.id === tabId ? {...tab,automaticName:sessionResumeRequest.title || "",customName:null} : tab) }));
+      tabs:current.tabs.map(tab => tab.id === tabId ? {...tab,automaticName:sessionResumeRequest.title || "",automaticNameFromHistory:true,customName:null} : tab) }));
     window.setTimeout(() => {
       void terminalHandlesRef.current[tabId]?.resumeCodexSession(sessionResumeRequest.sessionId);
     }, 0);
@@ -1227,11 +1235,11 @@ export function TerminalPane({
       focusTerminal(existing.id, "none");
       return;
     }
-    const name = session.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() || session.shell;
+    const name = session.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "终端";
     const tab = createTerminalTab(nextTabIndexRef.current++, { id: session.projectId, name, path: session.cwd });
     tab.attachSessionId = session.sessionId;
     const savedName = readSessionName(session.sessionId);
-    if (savedName) { tab.automaticName = savedName.automatic; tab.customName = savedName.custom; }
+    if (savedName) { tab.automaticName = savedName.automatic; tab.customName = savedName.custom; tab.automaticNameFromHistory = savedName.fromHistory; }
     setTerminalTabs(current => ({ tabs: [...current.tabs, tab], activeTabId: tab.id }));
   }, [terminalAttachRequest]);
 
@@ -1308,7 +1316,7 @@ export function TerminalPane({
   }
 
   function restartActiveTerminal() {
-    setTerminalTabs(current => ({...current,tabs:current.tabs.map(tab => tab.id === current.activeTabId ? {...tab,automaticName:""} : tab)}));
+    setTerminalTabs(current => ({...current,tabs:current.tabs.map(tab => tab.id === current.activeTabId ? {...tab,automaticName:"",automaticNameFromHistory:false} : tab)}));
     void terminalHandlesRef.current[terminalTabs.activeTabId]?.restartSession();
   }
 

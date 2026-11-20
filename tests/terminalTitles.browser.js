@@ -3,18 +3,30 @@ async (page) => {
   const check=(value,message)=>{if(!value)throw new Error(message);};
   const project={id:'title-project',name:'opencode-workbench',path:'D:/project/opencode-workbench',status:'idle',lastOpenedAt:0};
   const starts=[],writes=[],errors=[];let socket;
+  const backgrounds=[
+    {sessionId:'cached-shell',cwd:'/fixture/cached-shell'},
+    {sessionId:'cached-history',cwd:'/fixture/cached-history'},
+    {sessionId:'custom-shell',cwd:'/fixture/custom-shell'},
+    {sessionId:'root-shell',cwd:'/'},
+  ].map(s=>({...s,shell:'pwsh.exe',projectId:null,keepAlive:true}));
   page.on('pageerror',error=>errors.push(error.message));
   await page.setViewportSize({width:1280,height:850});
   await page.route('**/api/load_state',r=>r.fulfill({json:{projects:[project],activeProjectId:project.id}}));
   await page.route('**/api/initial_project_id',r=>r.fulfill({json:null}));
   await page.route('**/api/list_codex_sessions',r=>r.fulfill({json:[{id:'11111111-2222-4333-8444-555555555555',title:'恢复历史会话名称',cwd:project.path,updatedAt:1}]}));
-  await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null}}));
+  await page.route('**/api/events_ticket',r=>r.fulfill({json:{ticket:null,sessionLease:true}}));
   await page.routeWebSocket('**/api/events*',ws=>{socket=ws;});
   await page.route('**/api/terminal_*',async r=>{
-    const command=r.request().url().split('/').pop(),body=r.request().postDataJSON();
+    const command=r.request().url().split('/').pop(),body=r.request().method()==='GET'?{}:r.request().postDataJSON();
+    if(command==='terminal_sessions')return r.fulfill({json:backgrounds});
+    if(command==='terminal_heartbeat')return r.fulfill({json:{missingSessionIds:[]}});
+    if(command==='terminal_attach'){
+      const session=backgrounds.find(s=>s.sessionId===body.sessionId);
+      return r.fulfill({json:{...session,output:'\x1b]0;'+session.cwd.split('/').pop()+'\x07',outputSequence:1}});
+    }
     if(command==='terminal_start')starts.push(body);
     if(command==='terminal_write')writes.push(body);
-    await r.fulfill(command==='terminal_start'?{json:{sessionId:body.sessionId,shell:'Title fixture',cwd:project.path}}:{status:204});
+    await r.fulfill(command==='terminal_start'?{json:{sessionId:body.sessionId,shell:'Title fixture',cwd:project.path,keepAlive:false}}:{status:204});
   });
   await page.evaluate(()=>{localStorage.removeItem('opencode-workbench.session-names');localStorage.setItem('code-terminal-view-mode','terminal');localStorage.setItem('opencode-workbench.mobile-chrome-hidden','false');});
   await page.reload();await page.locator('.terminal-cell.active .xterm-rows').waitFor();
@@ -26,8 +38,17 @@ async (page) => {
   const field=page.getByRole('textbox',{name:'输入内容',exact:true});
   if(!await field.isVisible())await page.getByTitle('展开辅助输入区',{exact:true}).click();
   const send=async text=>{await field.fill(text);await field.press('Enter');await page.waitForTimeout(200);};
+  for(const shell of ['pwsh.exe','C:\\Program Files\\PowerShell\\7\\pwsh.exe','Administrator: Windows PowerShell','powershell.exe','C:\\Windows\\System32\\cmd.exe']){
+    await output(first,shell);
+    check(await activeTitle().getAttribute('title')==='opencode-workbench','Shell title must not appear as a session name: '+shell);
+  }
   await output(first,'⠋ 修复登录问题 | opencode-workbench');
   check(await activeTitle().getAttribute('title')==='opencode-workbench · 修复登录问题','Project and session names both shown');
+  await output(first,'pwsh.exe');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 修复登录问题','Shell placeholder must not replace the last actual session name');
+  await output(first,'修复 pwsh.exe 启动 | opencode-workbench');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 修复 pwsh.exe 启动','Legitimate titles mentioning a shell are preserved');
+  await output(first,'修复登录问题 | opencode-workbench');
   await send('/rename 新的真实会话名');
   check(writes.some(w=>w.sessionId===first&&w.data.includes('/rename 新的真实会话名')),'Native /rename reaches the original PTY');
   check(await activeTitle().getAttribute('title')==='opencode-workbench · 修复登录问题','Unconfirmed rename does not pretend success');
@@ -83,7 +104,34 @@ async (page) => {
   await page.waitForTimeout(350);
   check(await activeTitle().getAttribute('title')==='opencode-workbench · 恢复历史会话名称','Resume title comes from exact clicked history session');
   check(writes.some(w=>w.data.includes('codex resume 11111111-2222-4333-8444-555555555555')),'History resume keeps exact thread ID');
-  await output(starts.at(-1).sessionId,'opencode-workbench');
-  check(!(await activeTitle().getAttribute('title')).includes('恢复历史会话名称'),'Explicit unnamed title clears previous history name');
+  const resumed=starts.at(-1).sessionId;
+  await output(resumed,'pwsh.exe');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 恢复历史会话名称','Resume label survives the shell startup title');
+  await output(resumed,'opencode-workbench');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 恢复历史会话名称','Project-only startup title retains the exact history label');
+  await output(resumed,'⠋ opencode-workbench');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 恢复历史会话名称','Activity-only changes do not erase the history fallback');
+  check(await page.evaluate(id=>JSON.parse(localStorage.getItem('opencode-workbench.session-names'))[id].fromHistory,resumed),'History provenance is persisted for background reopening');
+  await output(resumed,'恢复后重命名 | opencode-workbench');
+  check(await activeTitle().getAttribute('title')==='opencode-workbench · 恢复后重命名','Real session title replaces the history fallback');
+  await output(resumed,'opencode-workbench');
+  check(!(await activeTitle().getAttribute('title')).includes('恢复'),'An unnamed title after a named session does not revive stale history');
+  await page.evaluate(()=>{
+    const key='opencode-workbench.session-names';
+    localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),
+      'cached-shell':{automatic:'C:\\Program Files\\PowerShell\\7\\pwsh.exe',custom:null},
+      'cached-history':{automatic:'已恢复的历史',custom:null,fromHistory:true},
+      'custom-shell':{automatic:'pwsh.exe',custom:'pwsh.exe'},
+    }));
+  });
+  for(const session of backgrounds){
+    await page.getByRole('button',{name:'设置',exact:true}).click();
+    await page.getByRole('button',{name:'打开后台会话 '+session.cwd,exact:true}).click();
+    await page.waitForTimeout(600);
+    const title=await activeTitle().getAttribute('title');
+    if(session.sessionId==='cached-history')check(title==='cached-history · 已恢复的历史','Background reopening retains exact history provenance');
+    else if(session.sessionId==='custom-shell')check(title==='custom-shell · pwsh.exe','An explicitly chosen alias is never filtered');
+    else check(!/pwsh|powershell/i.test(title),'Cached shell and root-directory fallback do not expose an executable name');
+  }
   return {passed:true,nativeRename:true,workbenchRename:true,projectsPreserved:true,multipleSessions:true,viewports:[1280,390,360]};
 }

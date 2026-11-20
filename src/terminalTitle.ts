@@ -18,8 +18,20 @@ export function stableTerminalTitle(value: string) {
     .replace(/^\[\s*[!.]\s*\]\s+Action Required(?:\s+\|\s+|$)/u, "");
 }
 
+function isShellTitle(value: string) {
+  const title = normalizeSessionName(value)
+    .replace(/^(?:Administrator|管理员)\s*:\s*/i, "").replace(/^"(.*)"$/, "$1");
+  // Match only a shell label or executable path, never words inside a real name.
+  if (/[\\/]/.test(title) && !/^(?:[a-z]:[\\/]|[\\/])/i.test(title)) return false;
+  const executable = title.replace(/\\/g, "/").split("/").pop() || "";
+  return /^(?:pwsh|powershell|cmd)(?:\.exe)?$/i.test(executable)
+    || /^(?:Windows )?PowerShell(?: 7)?$/i.test(title);
+}
+
 export function sessionNameFromTitle(value: string, projectName?: string | null, cwd?: string | null) {
   const title = stableTerminalTitle(value);
+  // Shell startup/restore titles carry no new session-name information.
+  if (isShellTitle(title)) return null;
   const basename = cwd?.replace(/\\/g, "/").split("/").filter(Boolean).pop();
   const projects = [projectName, basename].filter((name): name is string => Boolean(name))
     .flatMap(name => [normalizeSessionName(name), codexProjectLabel(normalizeSessionName(name))]);
@@ -41,13 +53,16 @@ export function parseTabNameCommand(value: string): {name: string | null; error?
   return {name:name === "--auto" ? null : name};
 }
 
-type SavedName = {automatic: string; custom: string | null};
+type SavedName = {automatic: string; custom: string | null; fromHistory?: boolean};
 const storageKey = "opencode-workbench.session-names";
 export function readSessionName(sessionId: string): SavedName | null {
   try {
     const item = JSON.parse(localStorage.getItem(storageKey) || "{}")[sessionId];
     if (!item || typeof item.automatic !== "string" || (item.custom !== null && typeof item.custom !== "string")) return null;
-    return {automatic:normalizeSessionName(item.automatic),custom:item.custom === null ? null : normalizeSessionName(item.custom)};
+    const automatic = normalizeSessionName(item.automatic);
+    const fromHistory = item.fromHistory === true;
+    return {automatic:!fromHistory && isShellTitle(automatic) ? "" : automatic,
+      custom:item.custom === null ? null : normalizeSessionName(item.custom),fromHistory};
   } catch { return null; }
 }
 export function saveSessionName(sessionId: string, name: SavedName) {
